@@ -25,9 +25,15 @@ json::value RestBase::getDataBase(uri_builder& builder)
 
 	httpClient.request(methods::GET, builder.to_string()).then([&jsonValue](http_response response)
 	{
-		response.extract_json().then([&jsonValue](json::value jVal) {
-			jsonValue = jVal;
-		}).wait();
+		if (response.status_code() == status_codes::OK) {
+			response.extract_json().then([&jsonValue](json::value jVal) {
+				jsonValue = jVal;
+			}).wait();
+		}
+		else {
+			jsonValue = json::value::null();
+		}
+
 	}).wait();
 
 	return jsonValue;

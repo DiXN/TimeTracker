@@ -30,4 +30,5 @@ class TimeTracking {
 		thread worker;
 		RestBase& restClient;
 		mutex processesMutex;
+		mutex onDataMutex;
 };

@@ -17,16 +17,15 @@ void TimeTracking::workerDelegate() {
 
 					if (lockCheck()) {
 						tasks.run([&] {
-							LOCK(processesMutex, processMap[process.first].second = false);
+							LOCK(processesMutex, processMap[process.first].second = false)
 
-							int launches = restClient.getData("apps/" + process.first + "/launches").as_integer();
-							restClient.patchData(process.first, "launches", json::value::number(++launches));
+							LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::LAUNCHES, process.first))
 
-							auto start = std::chrono::high_resolution_clock::now();
+							auto start = chrono::high_resolution_clock::now();
 							
-							auto today = std::chrono::system_clock::now();
-							std::time_t currentTime = std::chrono::system_clock::to_time_t(today);
-							struct tm *time = std::localtime(&currentTime);
+							auto today = chrono::system_clock::now();
+							time_t currentTime = chrono::system_clock::to_time_t(today);
+							struct tm *time = localtime(&currentTime);
 
 							auto lockCheck = [&] {
 								bool returnVal;
@@ -34,30 +33,20 @@ void TimeTracking::workerDelegate() {
 								return returnVal;
 							};
 
-							auto todayDuration = restClient.getData("apps/" + process.first + "/timeline/year/"
-								+ to_string(time->tm_year + 1900) + "/month/" + to_string(time->tm_mon)
-								+ "/day/" + to_string(time->tm_mday)).as_integer();
-
-							auto duration = restClient.getData("apps/" + process.first + "/duration").as_integer();
-
 							while (lockCheck()) {
-								std::chrono::duration<float> elapsed = std::chrono::high_resolution_clock::now() - start;
+								chrono::duration<float> elapsed = chrono::high_resolution_clock::now() - start;
 								if (int(elapsed.count()) != 0 && int(elapsed.count()) % 60 == 0) {
-									restClient.patchData(process.first, "duration", json::value::number(++duration));
-
-									restClient.patchData(process.first, "timeline/year/"
-										+ to_string(time->tm_year + 1900) + "/month/" + to_string(time->tm_mon)
-										+ "/day/" + to_string(time->tm_mday), json::value::number(++todayDuration));
+									LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::DURATION, process.first))
+									LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::TIMELINE, process.first))
 								}
 
 								pplx::wait(1000);
 							}
 
-							std::chrono::duration<float> end = std::chrono::high_resolution_clock::now() - start;
+							chrono::duration<float> end = chrono::high_resolution_clock::now() - start;
 
-							restClient.patchData(process.first, "longestSession", json::value::number(
-								max(int(end.count() / 60), restClient.getData("apps/" + process.first + "/longestSession").as_integer())));
-
+							LOCK(onDataMutex, restClient.onDataRecieve(
+								RestBase::RECIEVE_TYPES::LONGEST_SESSION, process.first, int(end.count() / 60)))
 							LOCK(processesMutex, processMap[process.first].second = true);
 						});
 					}
@@ -75,10 +64,10 @@ void TimeTracking::workerDelegate() {
 }
 
 TimeTracking::TimeTracking(RestBase& restClient) : restClient(restClient), worker(thread([=] { workerDelegate(); })) {
-	auto processNames = restClient.getData("apps");
+	const vector<string>& processes = restClient.getProcesses();
 
-	for (auto iter = processNames.as_object().cbegin(); iter != processNames.as_object().cend(); ++iter) {
-		processMap.emplace(conversions::to_utf8string(iter->first), make_pair(true, true));
+	for (const string& process : processes) {
+		processMap.emplace(process, make_pair(true, true));
 	}
 }
 

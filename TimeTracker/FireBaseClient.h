@@ -13,4 +13,10 @@ class FirebaseClient : public RestBase {
 		bool deleteData(const string& appName) override sealed;
 		bool putData(const string& appName) override sealed;
 		bool patchData(const string& appName, const string& key, const json::value& value) override sealed;
+		vector<string> getProcesses() override sealed;
+
+		bool onDataRecieve(RECIEVE_TYPES type, const string& process, int data = 1) override sealed;
+
+	private:
+		bool putData(const string& url, json::value value);
 };

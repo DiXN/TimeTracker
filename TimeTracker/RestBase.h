@@ -17,6 +17,8 @@ class RestBase {
 		RestBase(const string& baseUrl);
 		RestBase(const string& baseUrl, const string& authentication);
 
+		enum class RECIEVE_TYPES {LONGEST_SESSION, DURATION, LAUNCHES, TIMELINE};
+
 		const string& getBaseUrl();
 		const string& getAuthenticationString();
 		bool getHasAuthentication();
@@ -25,6 +27,9 @@ class RestBase {
 		virtual bool deleteData(const string& appName) = 0;
 		virtual bool putData(const string& appName) = 0;
 		virtual bool patchData(const string& appName, const string& key, const json::value& value) = 0;
+		virtual vector<string> getProcesses() = 0;
+
+		virtual bool onDataRecieve(RECIEVE_TYPES type, const string& process, int data = 1) = 0;
 
 		static const string readConfig(const string& arg);
 

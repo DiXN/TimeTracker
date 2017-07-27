@@ -49,6 +49,12 @@ bool FirebaseClient::putData(const string& appName)
 	return putDataBase(builder, content);
 }
 
+bool FirebaseClient::putData(const string& url, json::value value) {
+	uri_builder builder(conversions::to_string_t(url + ".json"));
+	builder.append_query(U("auth"), conversions::to_string_t(getAuthenticationString()));
+	return putDataBase(builder, value);
+}
+
 bool FirebaseClient::patchData(const string& appName, const string& key, const json::value& value)
 {
 	json::value content;
@@ -57,4 +63,61 @@ bool FirebaseClient::patchData(const string& appName, const string& key, const j
 	uri_builder builder(conversions::to_string_t("apps/" + appName + ".json"));
 	builder.append_query(U("auth"), conversions::to_string_t(getAuthenticationString()));
 	return patchDataBase(builder, content);
+}
+
+vector<string> FirebaseClient::getProcesses() {
+	auto processNames = getData("apps");
+
+	vector<string> processes;
+	for (auto iter = processNames.as_object().cbegin(); iter != processNames.as_object().cend(); ++iter) {
+		processes.push_back(conversions::to_utf8string(iter->first));
+	}
+
+	return processes;
+}
+
+bool FirebaseClient::onDataRecieve(RECIEVE_TYPES type, const string& process, int data) {
+	switch (type)
+	{
+		case RestBase::RECIEVE_TYPES::LONGEST_SESSION: {
+			return patchData(process, "longestSession", json::value::number(
+				max(data, getData("apps/" + process + "/longestSession").as_integer())));
+		}
+
+		case RestBase::RECIEVE_TYPES::DURATION: {
+			auto duration = getData("apps/" + process + "/duration").as_integer();
+			return patchData(process, "duration", json::value::number(duration += data));
+		}
+
+		case RestBase::RECIEVE_TYPES::LAUNCHES: {
+			int launches = getData("apps/" + process + "/launches").as_integer();
+			return patchData(process, "launches", json::value::number(launches += data));
+		}
+
+		case RestBase::RECIEVE_TYPES::TIMELINE: {
+			auto today = chrono::system_clock::now();
+			time_t currentTime = chrono::system_clock::to_time_t(today);
+			struct tm *time = localtime(&currentTime);
+
+			const string& key = "/timeline/year/"
+				+ to_string(time->tm_year + 1900) + "/month/" + to_string(time->tm_mon)
+				+ "/day/" + to_string(time->tm_mday);
+
+			const string& url = "apps/" + process + key;
+
+			const json::value& todayDataJson = getData(url);
+
+			if (!wcscmp(todayDataJson.serialize().c_str(), L"null")) {
+				return putData(url, json::value::number(1));
+			}
+			else {
+				auto todayData = todayDataJson.as_integer();
+				return patchData(process, key, todayData += data);
+			}
+		}
+	default:
+		break;
+	}
+
+	return true;
 }
