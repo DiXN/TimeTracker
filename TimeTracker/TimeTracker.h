@@ -7,7 +7,7 @@
 #ifdef TIMETRACKER_EXPORTS  
 	#define EXPORT extern "C" __declspec(dllexport)   
 #else  
-	#define TIMETRACKER_EXPORTS extern "C"  __declspec(dllimport)   
+	#define EXPORT extern "C"  __declspec(dllimport)   
 #endif 
 
 
