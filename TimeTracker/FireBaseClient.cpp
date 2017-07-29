@@ -86,12 +86,26 @@ bool FirebaseClient::onDataRecieve(RECIEVE_TYPES type, const string& process, in
 
 		case RestBase::RECIEVE_TYPES::DURATION: {
 			auto duration = getData("apps/" + process + "/duration").as_integer();
-			return patchData(process, "duration", json::value::number(duration += data));
+
+			json::value content, output;
+			content[L"name"] = json::value::string(conversions::to_string_t(process));
+			content[L"total"] = json::value::number(duration + data);
+			output[conversions::to_string_t(process)] = content;
+
+			csharpOnDataChange(conversions::to_utf8string(output.serialize()));
+			return patchData(process, "duration", json::value::number(duration + data));
 		}
 
 		case RestBase::RECIEVE_TYPES::LAUNCHES: {
 			int launches = getData("apps/" + process + "/launches").as_integer();
-			return patchData(process, "launches", json::value::number(launches += data));
+
+			json::value content, output;
+			content[L"name"] = json::value::string(conversions::to_string_t(process));
+			content[L"launches"] = json::value::number(launches + data);
+			output[conversions::to_string_t(process)] = content;
+
+			csharpOnDataChange(conversions::to_utf8string(output.serialize()));
+			return patchData(process, "launches", json::value::number(launches + data));
 		}
 
 		case RestBase::RECIEVE_TYPES::TIMELINE: {
@@ -112,7 +126,7 @@ bool FirebaseClient::onDataRecieve(RECIEVE_TYPES type, const string& process, in
 			}
 			else {
 				auto todayData = todayDataJson.as_integer();
-				return patchData(process, key, todayData += data);
+				return patchData(process, key, todayData + data);
 			}
 		}
 	default:

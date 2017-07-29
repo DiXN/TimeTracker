@@ -1,19 +1,38 @@
 #include "stdafx.h"
-#include "FireBaseClient.h"
-#include "TimeTracking.h"
+#include "TimeTracker.h"
 
-#include <iostream>
+RestBase* restClient;
+TimeTracking* tracking;
 
-int main()
-{
-	FirebaseClient fireBaseClient(RestBase::readConfig("baseUri"), RestBase::readConfig("apiKey"));
+bool isInitialized = false;
 
-	TimeTracking tracking(fireBaseClient);
+typedef int(__stdcall* Callback)(const char* text);
 
-	tracking.addProcess("notepad");
-	tracking.addProcess("sublime_text");
-	tracking.addProcess("calc");
+Callback _handler = 0;
 
-    return 0;
+void init() {
+	if (!isInitialized) {
+		restClient = new FirebaseClient("", "");
+		tracking = new TimeTracking(*restClient);
+		isInitialized = true;
+	}
 }
 
+bool addProcess(const char* processName) {
+	init();
+	return tracking->addProcess(processName);
+}
+
+bool deleteProcess(const char* processName) {
+	init();
+	return tracking->deleteProcess(processName);
+}
+
+EXPORT void setCsharpCallback(Callback handler) {
+	init();
+	_handler = handler;
+}
+
+void csharpOnDataChange(string data) {
+	_handler(data.c_str());
+}

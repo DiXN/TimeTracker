@@ -2,10 +2,15 @@
 #include "stdafx.h"
 #include "dllmain.h"
 
-HANDLE g_hDllHandle = 0;
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD reasonForCall, LPVOID lpReserved) {
+	switch (reasonForCall)
+	{
+		case DLL_PROCESS_ATTACH:
+		case DLL_THREAD_ATTACH:
+		case DLL_THREAD_DETACH:
+		case DLL_PROCESS_DETACH:
+			break;
+	}
 
-BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD dwReason, LPVOID)
-{
-	g_hDllHandle = hInstance;
-	DisableThreadLibraryCalls((HMODULE)hInstance);
+	return TRUE;
 }

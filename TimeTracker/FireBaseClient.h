@@ -1,6 +1,7 @@
 #pragma once
 #include "RestBase.h"
 #include "TimeTracking.h"
+#include "TimeTracker.h"
 #include <codecvt>
 
 class FirebaseClient : public RestBase {
@@ -16,7 +17,6 @@ class FirebaseClient : public RestBase {
 		vector<string> getProcesses() override sealed;
 
 		bool onDataRecieve(RECIEVE_TYPES type, const string& process, int data = 1) override sealed;
-
 	private:
 		bool putData(const string& url, json::value value);
 };
