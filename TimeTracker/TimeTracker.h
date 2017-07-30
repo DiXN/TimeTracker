@@ -17,3 +17,5 @@ EXPORT bool deleteProcess(const char* processName);
 
 EXPORT void csharpOnDataChange(string data);
 
+EXPORT LPWSTR getProcesses();
+

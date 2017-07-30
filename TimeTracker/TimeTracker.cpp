@@ -28,11 +28,25 @@ bool deleteProcess(const char* processName) {
 	return tracking->deleteProcess(processName);
 }
 
-EXPORT void setCsharpCallback(Callback handler) {
+EXPORT void onDataChangeCallback(Callback handler) {
 	init();
 	_handler = handler;
 }
 
 void csharpOnDataChange(string data) {
 	_handler(data.c_str());
+}
+
+LPWSTR getProcesses() {
+	init();
+	const vector<string>& processes = restClient->getProcesses();
+
+	json::value processesJson;
+	processesJson[U("processes")] = json::value::array(processes.size());
+
+	for (size_t i = 0; i < processes.size(); i++) {
+		processesJson[U("processes")][i] = json::value(conversions::to_string_t(processes[i]));
+	}
+
+	return ::SysAllocString(processesJson.serialize().c_str());
 }
