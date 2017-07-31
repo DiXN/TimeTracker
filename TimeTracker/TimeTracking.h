@@ -20,7 +20,7 @@ class TimeTracking {
 		
 		bool addProcess(const string& process);
 		bool deleteProcess(const string& process);
-		bool isProcessRunning(const string& process);
+		bool isProcessRunning(const string& process, SYSTEMTIME& fProcessTime);
 
 		~TimeTracking();
 	private:
@@ -31,4 +31,5 @@ class TimeTracking {
 		RestBase& restClient;
 		mutex processesMutex;
 		mutex onDataMutex;
+		mutex startTimeMutex;
 };

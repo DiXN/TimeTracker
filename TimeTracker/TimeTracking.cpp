@@ -6,7 +6,8 @@ void TimeTracking::workerDelegate() {
 	concurrency::parallel_invoke([&] {
 		while (true) {
 			for (const auto& process : processMap) {
-				if (isProcessRunning(process.first + ".exe")) {
+				SYSTEMTIME sProcessTime;
+				if (isProcessRunning(process.first + ".exe", sProcessTime)) {
 					LOCK(processesMutex, processMap[process.first].first = true);
 
 					auto lockCheck = [&] {
@@ -18,14 +19,23 @@ void TimeTracking::workerDelegate() {
 					if (lockCheck()) {
 						tasks.run([&] {
 							LOCK(processesMutex, processMap[process.first].second = false)
-
-							LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::LAUNCHES, process.first))
-
+							
 							auto start = chrono::high_resolution_clock::now();
 							
 							auto today = chrono::system_clock::now();
 							time_t currentTime = chrono::system_clock::to_time_t(today);
-							struct tm *time = localtime(&currentTime);
+							st_time *time = localtime(&currentTime);
+
+							const st_time* appStartStruct;
+
+							LOCK(startTimeMutex, appStartStruct = &restClient.getStartTime())
+
+							auto appStartTime = (appStartStruct->tm_hour * 3600 + appStartStruct->tm_min * 60 + appStartStruct->tm_sec);
+							auto processStartTime = ((sProcessTime.wHour + 2) * 3600 + sProcessTime.wMinute * 60);
+
+							if (appStartTime < processStartTime) {
+								LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::LAUNCHES, process.first))
+							}
 
 							auto lockCheck = [&] {
 								bool returnVal;
@@ -56,7 +66,7 @@ void TimeTracking::workerDelegate() {
 				}
 			}
 
-			pplx::wait(10000);
+			pplx::wait(5000);
 		}
 	},
 		[&] { tasks.run([] {});
@@ -105,11 +115,12 @@ bool TimeTracking::deleteProcess(const string& process) {
 	}
 }
 
-bool TimeTracking::isProcessRunning(const string& process) {
+bool TimeTracking::isProcessRunning(const string& process, SYSTEMTIME& sProcessTime) {
 	PROCESSENTRY32 pe;
 	HANDLE handle = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 	pe.dwSize = sizeof(PROCESSENTRY32);
-
+	HANDLE processHandle;
+	FILETIME fProcessTime, ftExit, ftKernel, ftUser;
 	if (!Process32First(handle, &pe)) {
 		CloseHandle(handle);
 		return false;
@@ -117,6 +128,10 @@ bool TimeTracking::isProcessRunning(const string& process) {
 
 	do {
 		if (!lstrcmpi(pe.szExeFile, conversions::to_string_t(process).c_str())) {
+			processHandle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pe.th32ProcessID);
+			GetProcessTimes(processHandle, &fProcessTime, &ftExit, &ftKernel, &ftUser);
+			FileTimeToSystemTime(&fProcessTime, &sProcessTime);
+			CloseHandle(processHandle);
 			CloseHandle(handle);
 			return true;
 		}

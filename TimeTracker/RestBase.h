@@ -12,6 +12,8 @@ using namespace web::http::client;
 using namespace web::json;
 using namespace utility;
 
+typedef struct tm st_time;
+
 class RestBase {
 	public: 
 		RestBase(const string& baseUrl);
@@ -22,6 +24,9 @@ class RestBase {
 		const string& getBaseUrl();
 		const string& getAuthenticationString();
 		bool getHasAuthentication();
+
+		const st_time getStartTime();
+		void setStartTime(const st_time& startTime);
 
 		virtual json::value getData(const string& searchQuery) = 0;
 		virtual bool deleteData(const string& appName) = 0;
@@ -44,4 +49,5 @@ class RestBase {
 		const string authentication;
 		bool hasAuthentication;
 		http_client httpClient;
+		st_time startTime;
 };

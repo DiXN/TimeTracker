@@ -12,7 +12,13 @@ Callback _handler = 0;
 
 void init() {
 	if (!isInitialized) {
+		auto today = chrono::system_clock::now();
+		time_t currentTime = chrono::system_clock::to_time_t(today);
+
 		restClient = new FirebaseClient("", "");
+
+		restClient->setStartTime(*localtime(&currentTime));
+
 		tracking = new TimeTracking(*restClient);
 		isInitialized = true;
 	}

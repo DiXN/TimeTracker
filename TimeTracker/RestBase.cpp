@@ -19,6 +19,14 @@ bool RestBase::getHasAuthentication() {
 	return hasAuthentication;
 }
 
+const st_time RestBase::getStartTime() {
+	return startTime;
+}
+
+void RestBase::setStartTime(const st_time& startTime) {
+	this->startTime = startTime;
+}
+
 json::value RestBase::getDataBase(uri_builder& builder)
 {
 	json::value jsonValue = json::value();
