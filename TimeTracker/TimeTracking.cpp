@@ -3,74 +3,76 @@
 
 void TimeTracking::workerDelegate() {
 	concurrency::task_group tasks;
-	concurrency::parallel_invoke([&] {
-		while (true) {
-			for (const auto& process : processMap) {
-				SYSTEMTIME sProcessTime;
-				if (isProcessRunning(process.first + ".exe", sProcessTime)) {
-					LOCK(processesMutex, processMap[process.first].first = true);
 
-					auto lockCheck = [&] {
-						bool returnVal;
-						LOCK(processesMutex, returnVal = processMap[process.first].first && processMap[process.first].second);
-						return returnVal;
-					};
+	while (true) {
+		for (const auto& process : processMap) {
+			SYSTEMTIME sProcessTime;
+			if (isProcessRunning(process.first + ".exe", sProcessTime)) {
+				LOCK(processesMutex, processMap[process.first].first = true);
 
-					if (lockCheck()) {
-						tasks.run([&] {
-							LOCK(processesMutex, processMap[process.first].second = false)
+				auto lockCheck = [&] {
+					bool returnVal;
+					LOCK(processesMutex, returnVal = processMap[process.first].first && processMap[process.first].second);
+					return returnVal;
+				};
+
+				if (lockCheck()) {
+					tasks.run([&] {
+						LOCK(processesMutex, processMap[process.first].second = false)
 							
-							auto start = chrono::high_resolution_clock::now();
+						auto start = chrono::high_resolution_clock::now();
 							
-							auto today = chrono::system_clock::now();
-							time_t currentTime = chrono::system_clock::to_time_t(today);
-							st_time *time = localtime(&currentTime);
+						auto today = chrono::system_clock::now();
+						time_t currentTime = chrono::system_clock::to_time_t(today);
+						st_time *time = localtime(&currentTime);
 
-							const st_time* appStartStruct;
+						const st_time* appStartStruct;
 
-							LOCK(startTimeMutex, appStartStruct = &restClient.getStartTime())
+						LOCK(startTimeMutex, appStartStruct = &restClient.getStartTime())
 
-							auto appStartTime = (appStartStruct->tm_hour * 3600 + appStartStruct->tm_min * 60 + appStartStruct->tm_sec);
-							auto processStartTime = ((sProcessTime.wHour + 2) * 3600 + sProcessTime.wMinute * 60);
+						int monthMulti = 2592000, dayMulti = 86400, hourMulti = 3600, minuteMulti = 60;
 
-							if (appStartTime < processStartTime) {
-								LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::LAUNCHES, process.first))
+						auto appStartTime = (appStartStruct->tm_mon + 1) * monthMulti + (appStartStruct->tm_mday * dayMulti +
+								appStartStruct->tm_hour * hourMulti + appStartStruct->tm_min * minuteMulti + appStartStruct->tm_sec);
+
+						auto processStartTime = sProcessTime.wMonth * monthMulti + sProcessTime.wDay * dayMulti +
+								((sProcessTime.wHour + 2) * hourMulti + sProcessTime.wMinute * minuteMulti + sProcessTime.wSecond);
+
+						if (appStartTime < processStartTime) {
+							LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::LAUNCHES, process.first))
+						}
+
+						auto lockCheck = [&] {
+							bool returnVal;
+							LOCK(processesMutex, returnVal = processMap[process.first].first);
+							return returnVal;
+						};
+
+						while (lockCheck()) {
+							chrono::duration<float> elapsed = chrono::high_resolution_clock::now() - start;
+							if (int(elapsed.count()) != 0 && int(elapsed.count()) % 60 == 0) {
+								LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::DURATION, process.first))
+								LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::TIMELINE, process.first))
 							}
 
-							auto lockCheck = [&] {
-								bool returnVal;
-								LOCK(processesMutex, returnVal = processMap[process.first].first);
-								return returnVal;
-							};
+							pplx::wait(1000);
+						}
 
-							while (lockCheck()) {
-								chrono::duration<float> elapsed = chrono::high_resolution_clock::now() - start;
-								if (int(elapsed.count()) != 0 && int(elapsed.count()) % 60 == 0) {
-									LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::DURATION, process.first))
-									LOCK(onDataMutex, restClient.onDataRecieve(RestBase::RECIEVE_TYPES::TIMELINE, process.first))
-								}
+						chrono::duration<float> end = chrono::high_resolution_clock::now() - start;
 
-								pplx::wait(1000);
-							}
-
-							chrono::duration<float> end = chrono::high_resolution_clock::now() - start;
-
-							LOCK(onDataMutex, restClient.onDataRecieve(
-								RestBase::RECIEVE_TYPES::LONGEST_SESSION, process.first, int(end.count() / 60)))
-							LOCK(processesMutex, processMap[process.first].second = true);
-						});
-					}
-				}
-				else {
-					LOCK(processesMutex, processMap[process.first].first = false);
+						LOCK(onDataMutex, restClient.onDataRecieve(
+							RestBase::RECIEVE_TYPES::LONGEST_SESSION, process.first, int(end.count() / 60)))
+						LOCK(processesMutex, processMap[process.first].second = true);
+					});
 				}
 			}
-
-			pplx::wait(5000);
+			else {
+				LOCK(processesMutex, processMap[process.first].first = false);
+			}
 		}
-	},
-		[&] { tasks.run([] {});
-	});
+
+		pplx::wait(5000);
+	}
 }
 
 TimeTracking::TimeTracking(RestBase& restClient) : restClient(restClient), worker(thread([=] { workerDelegate(); })) {

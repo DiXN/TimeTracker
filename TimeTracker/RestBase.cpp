@@ -65,7 +65,7 @@ bool RestBase::putDataBase(uri_builder& builder, const json::value& content)
 	bool returnVal = false;
 
 	httpClient.request(methods::PUT, builder.to_string(),
-		content.to_string().c_str(), L"application/json").then([&returnVal](http_response response) {
+		content.serialize().c_str(), L"application/json").then([&returnVal](http_response response) {
 		if (response.status_code() == status_codes::OK) {
 			returnVal = true;
 		}
@@ -79,7 +79,7 @@ bool RestBase::patchDataBase(uri_builder& builder, const json::value& content)
 	bool returnVal = false;
 
 	httpClient.request(methods::PATCH, builder.to_string(),
-		content.to_string().c_str(), L"application/json").then([&returnVal](http_response response) {
+		content.serialize().c_str(), L"application/json").then([&returnVal](http_response response) {
 		if (response.status_code() == status_codes::OK) {
 			returnVal = true;
 		}
