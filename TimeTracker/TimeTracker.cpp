@@ -8,7 +8,12 @@ bool isInitialized = false;
 
 typedef int(__stdcall* Callback)(const char* text);
 
-Callback _handler = 0;
+int _stdcall delegateHandle(const char* text) {
+	std::cout << text << std::endl;
+	return 0;
+}
+
+Callback _handler = &delegateHandle;
 
 void init() {
 	if (!isInitialized) {
