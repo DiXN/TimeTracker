@@ -21,6 +21,8 @@ class TimeTracking {
 		bool addProcess(const string& process);
 		bool deleteProcess(const string& process);
 		bool isProcessRunning(const string& process, SYSTEMTIME& fProcessTime);
+		bool isFullscreen(HWND hwnd);
+		unique_ptr<string> getWindowName(HWND hwnd);
 
 		~TimeTracking();
 	private:
