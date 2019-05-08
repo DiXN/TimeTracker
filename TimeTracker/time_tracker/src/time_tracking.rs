@@ -39,8 +39,8 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
 
     thread::spawn(move || {
       tx_arc_clone.send((p.to_owned(), ReceiveTypes::LAUNCHES)).unwrap();
-      //longest session impl missing.
       let mut counter = 0;
+
       loop {
         if let Some((fst, snd)) = thread_process_map.lock().unwrap().get_mut(&p) {
           //log progress.
@@ -57,6 +57,7 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
         thread::sleep(Duration::from_millis(60000));
       }
 
+      tx_arc_clone.send((format!("{};{}", p.to_owned(), counter.to_string()), ReceiveTypes::LONGEST_SESSION)).unwrap();
       // log thread finished.
       //println!("{:?}", &thread_process_map);
     });

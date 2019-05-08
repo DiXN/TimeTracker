@@ -89,7 +89,19 @@ impl Restable for FirebaseClient {
 
       while let Ok(rx) = rx.recv() {
         match rx {
-          (item, ReceiveTypes::LONGEST_SESSION) => patch_increment(&item, "longestSession"),
+          (item, ReceiveTypes::LONGEST_SESSION) => {
+            let split = item.split(";").collect::<Vec<&str>>();
+            if let Ok(ret) = self.get_data(&format!("/apps/{}/longestSession", split[0])) {
+              let longest_session = ret.as_i64().unwrap();
+              let current_session = split[1].parse::<i64>().unwrap();
+
+              if current_session > longest_session {
+                if let Ok(_) = self.patch_data(split[0], &json!({"longestSession": current_session})) {
+                  //log info
+                }
+              }
+            }
+          },
           (item, ReceiveTypes::DURATION) => patch_increment(&item, "duration"),
           (item, ReceiveTypes::LAUNCHES) => patch_increment(&item, "launches"),
           (item, ReceiveTypes::TIMELINE) => {
