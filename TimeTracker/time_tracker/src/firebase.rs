@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::thread;
 
-#[macro_use]
 use reqwest::Client;
 
 use serde_json::{json, Value};
@@ -81,8 +80,8 @@ impl Restable for FirebaseClient {
           let mut inc = ret.as_i64().unwrap();
           inc += 1i64;
 
-          if let Ok(_) = self.patch_data(&item, &json!({inc_type: inc})) {
-            //log info
+          if let Ok(o) = self.patch_data(&item, &json!({inc_type: inc})) {
+            info!("{}: {}", item, o);
           }
         }
       };
@@ -96,8 +95,8 @@ impl Restable for FirebaseClient {
               let current_session = split[1].parse::<i64>().unwrap();
 
               if current_session > longest_session {
-                if let Ok(_) = self.patch_data(split[0], &json!({"longestSession": current_session})) {
-                  //log info
+                if let Ok(o) = self.patch_data(split[0], &json!({"longestSession": current_session})) {
+                  info!("{}: {}", split[0], o);
                 }
               }
             }
@@ -117,8 +116,8 @@ impl Restable for FirebaseClient {
               };
 
               let date_str = format!("{}/timeline/{}/{}", item, dt.year().to_string(), (dt.month() - 1).to_string());
-              if let Ok(_) = self.patch_data(&date_str, &json!({dt.day().to_string(): current_value})) {
-                //log info
+              if let Ok(o) = self.patch_data(&date_str, &json!({dt.day().to_string(): current_value})) {
+                info!("{}: {}", item, o);
               }
             };
           }

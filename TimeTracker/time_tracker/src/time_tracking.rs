@@ -43,7 +43,6 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
 
       loop {
         if let Some((fst, snd)) = thread_process_map.lock().unwrap().get_mut(&p) {
-          //log progress.
           if *fst {
             tx_arc_clone.send((p.to_owned(), ReceiveTypes::DURATION)).unwrap();
             tx_arc_clone.send((p.to_owned(), ReceiveTypes::TIMELINE)).unwrap();
@@ -58,8 +57,7 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
       }
 
       tx_arc_clone.send((format!("{};{}", p.to_owned(), counter.to_string()), ReceiveTypes::LONGEST_SESSION)).unwrap();
-      // log thread finished.
-      //println!("{:?}", &thread_process_map);
+      info!("Process: {} has finished.", p)
     });
   }
 
@@ -82,8 +80,7 @@ fn check_processes(spawn_tx: Sender<String>, process_map: Arc<Mutex<HashMap<Stri
           *fst = false;
         }
 
-        //debug
-        //println!("{}, {}, {}", p, fst, snd);
+        //debug!("{}, {}, {}", p, fst, snd);
       }
 
       thread::sleep(Duration::from_millis(10000));
