@@ -15,6 +15,7 @@ use crossbeam_channel::{Sender, unbounded};
 use crate::native::is_process_running;
 
 use crate::receive_types::ReceiveTypes;
+use crate::rpc::init_rpc;
 
 pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
   let mut processes_map = HashMap::new();
@@ -32,6 +33,7 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
 
   client.init_event_loop(rx);
   check_processes(spawn_tx, processes_map.clone());
+  init_rpc();
 
   while let Ok(p) = spawn_rx.recv() {
     let thread_process_map = processes_map.clone();
@@ -86,4 +88,8 @@ fn check_processes(spawn_tx: Sender<String>, process_map: Arc<Mutex<HashMap<Stri
       thread::sleep(Duration::from_millis(10000));
     }
   });
+}
+
+pub fn add_process(process: &str) -> Result<(), Box<dyn Error>> {
+  Ok(())
 }

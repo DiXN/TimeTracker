@@ -16,6 +16,8 @@ use crate::firebase::FirebaseClient;
 
 mod restable;
 
+mod rpc;
+
 #[macro_use]
 mod native;
 
