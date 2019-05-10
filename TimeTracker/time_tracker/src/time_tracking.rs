@@ -17,14 +17,20 @@ use crate::native::is_process_running;
 use crate::receive_types::ReceiveTypes;
 use crate::rpc::init_rpc;
 
+lazy_static! {
+  static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = {
+    Mutex::new(HashMap::new())
+  };
+}
+
 pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
-  let mut processes_map = HashMap::new();
 
   for p in client.get_processes()? {
-    processes_map.insert(p, (false, false));
+    PROCESS_MAP
+      .lock()
+      .unwrap()
+      .insert(p, (false, false));
   }
-
-  let processes_map = Arc::new(Mutex::new(processes_map));
 
   let (tx, rx) = unbounded();
   let tx_arc = Arc::new(tx);
@@ -32,11 +38,10 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
   let (spawn_tx, spawn_rx) = unbounded();
 
   client.init_event_loop(rx);
-  check_processes(spawn_tx, processes_map.clone());
+  check_processes(spawn_tx);
   init_rpc();
 
   while let Ok(p) = spawn_rx.recv() {
-    let thread_process_map = processes_map.clone();
     let tx_arc_clone = tx_arc.clone();
 
     thread::spawn(move || {
@@ -44,7 +49,7 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
       let mut counter = 0;
 
       loop {
-        if let Some((fst, snd)) = thread_process_map.lock().unwrap().get_mut(&p) {
+        if let Some((fst, snd)) = PROCESS_MAP.lock().unwrap().get_mut(&p) {
           if *fst {
             tx_arc_clone.send((p.to_owned(), ReceiveTypes::DURATION)).unwrap();
             tx_arc_clone.send((p.to_owned(), ReceiveTypes::TIMELINE)).unwrap();
@@ -68,10 +73,10 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
   Ok(())
 }
 
-fn check_processes(spawn_tx: Sender<String>, process_map: Arc<Mutex<HashMap<String, (bool, bool)>>>) {
+fn check_processes(spawn_tx: Sender<String>) {
   thread::spawn(move|| {
     loop {
-      for (p, (fst, snd)) in process_map.lock().unwrap().iter_mut() {
+      for (p, (fst, snd)) in PROCESS_MAP.lock().unwrap().iter_mut() {
         if unsafe { is_process_running(CString::new(format!("{}.exe", p)).unwrap().as_ptr()) } {
           *fst = true;
           if !*snd {
@@ -90,6 +95,9 @@ fn check_processes(spawn_tx: Sender<String>, process_map: Arc<Mutex<HashMap<Stri
   });
 }
 
-pub fn add_process(process: &str) -> Result<(), Box<dyn Error>> {
-  Ok(())
+pub fn add_process(process: &str) {
+    PROCESS_MAP
+      .lock()
+      .unwrap()
+      .insert(process.to_owned(), (false, false));
 }
