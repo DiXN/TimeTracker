@@ -12,6 +12,7 @@ use crossbeam_channel::Receiver;
 use crate::restable::Restable;
 use crate::receive_types::ReceiveTypes;
 
+#[derive(Clone)]
 pub struct FirebaseClient {
   pub authentication: String,
   pub base_url: String,

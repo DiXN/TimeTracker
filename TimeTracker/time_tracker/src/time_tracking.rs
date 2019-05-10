@@ -1,9 +1,8 @@
 use crate::restable::Restable;
 
 use std::{
-  ffi::CString,
   collections::HashMap,
-  sync::{Arc, Mutex},
+  sync::{Arc, Mutex, RwLock},
   thread,
   time::Duration,
   error::Error
@@ -11,8 +10,7 @@ use std::{
 
 use crossbeam_channel::{Sender, unbounded};
 
-#[macro_use]
-use crate::native::is_process_running;
+use crate::{n_str, is_process_running, ns_invoke, query_file_info};
 
 use crate::receive_types::ReceiveTypes;
 use crate::rpc::init_rpc;
@@ -23,8 +21,7 @@ lazy_static! {
   };
 }
 
-pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
-
+pub fn init<T>(client: T) -> Result<(), Box<dyn Error>> where T : Restable + Clone + Sync + Send + 'static {
   for p in client.get_processes()? {
     PROCESS_MAP
       .lock()
@@ -37,9 +34,9 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
 
   let (spawn_tx, spawn_rx) = unbounded();
 
+  init_rpc(client.clone());
   client.init_event_loop(rx);
   check_processes(spawn_tx);
-  init_rpc();
 
   while let Ok(p) = spawn_rx.recv() {
     let tx_arc_clone = tx_arc.clone();
@@ -49,6 +46,8 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
       let mut counter = 0;
 
       loop {
+        thread::sleep(Duration::from_millis(60000));
+
         if let Some((fst, snd)) = PROCESS_MAP.lock().unwrap().get_mut(&p) {
           if *fst {
             tx_arc_clone.send((p.to_owned(), ReceiveTypes::DURATION)).unwrap();
@@ -59,8 +58,6 @@ pub fn init<T: Restable>(client: T) -> Result<(), Box<dyn Error>> {
             break;
           }
         }
-
-        thread::sleep(Duration::from_millis(60000));
       }
 
       tx_arc_clone.send((format!("{};{}", p.to_owned(), counter.to_string()), ReceiveTypes::LONGEST_SESSION)).unwrap();
@@ -77,7 +74,7 @@ fn check_processes(spawn_tx: Sender<String>) {
   thread::spawn(move|| {
     loop {
       for (p, (fst, snd)) in PROCESS_MAP.lock().unwrap().iter_mut() {
-        if unsafe { is_process_running(CString::new(format!("{}.exe", p)).unwrap().as_ptr()) } {
+        if unsafe { is_process_running(n_str!(format!("{}.exe", p)).as_ptr()) } {
           *fst = true;
           if !*snd {
             *snd = true;
@@ -95,9 +92,21 @@ fn check_processes(spawn_tx: Sender<String>) {
   });
 }
 
-pub fn add_process(process: &str) {
-    PROCESS_MAP
-      .lock()
-      .unwrap()
-      .insert(process.to_owned(), (false, false));
+pub fn add_process<T: Restable>(process: &str, path: &str, client: &Arc<RwLock<T>>) -> Result<(), Box<dyn Error>> {
+  let product_name = ns_invoke!(query_file_info, n_str!(path));
+
+  let product_name = if !product_name.is_empty() {
+    &product_name
+  } else {
+    process
+  };
+
+  client.read().unwrap().put_data(process, product_name)?;
+
+  PROCESS_MAP
+    .lock()
+    .unwrap()
+    .insert(process.to_owned(), (false, false));
+
+  Ok(())
 }
