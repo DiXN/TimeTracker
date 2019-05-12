@@ -5,7 +5,13 @@ use serde_json::Value;
 use serde_json::json;
 
 use jsonrpc_core;
-use jsonrpc_core::{IoHandler, Params};
+
+use jsonrpc_core::{
+  IoHandler,
+  Params,
+  types::{Error, ErrorCode}
+};
+
 use jsonrpc_http_server::ServerBuilder;
 
 use crate::restable::Restable;
@@ -22,26 +28,31 @@ pub fn init_rpc<T>(client: T) where T : Restable + Sync + Send + 'static {
 
       match params.parse::<Vec<Value>>() {
         Ok(param) => {
-          if let Some(p) = param[0].as_str() {
-            if let Some(path) = param[1].as_str() {
-              if let Ok(_) = add_process(p, path, &add_ref) {
-                Ok(Value::String("process successfully added".to_owned()))
+          if param.len() > 1 {
+            if let Some(p) = param[0].as_str() {
+              if let Some(path) = param[1].as_str() {
+                if let Ok(_) = add_process(p, path, &add_ref) {
+                  Ok(Value::String("process successfully added".to_owned()))
+                } else {
+                  error!("Could not add process \"{}\"", p);
+                  Err(Error::new(ErrorCode::InternalError))
+                }
               } else {
-                error!("Could not add process \"{}\"", p);
-                Ok(Value::String(format!("Could not add process \"{}\"", p)))
+                error!("{}", &error_str);
+                Err(Error::new(ErrorCode::ParseError))
               }
             } else {
               error!("{}", &error_str);
-              Ok(Value::String(error_str.to_string()))
+              Err(Error::new(ErrorCode::ParseError))
             }
           } else {
             error!("{}", &error_str);
-            Ok(Value::String(error_str.to_string()))
+            Err(Error::new(ErrorCode::ParseError))
           }
         },
         Err(_) => {
           error!("{}", &error_str);
-          Ok(Value::String(error_str.to_string()))
+          Err(Error::new(ErrorCode::ParseError))
         }
       }
     });
@@ -54,7 +65,7 @@ pub fn init_rpc<T>(client: T) where T : Restable + Sync + Send + 'static {
         Ok(json!(&processes))
       } else {
         error!("{}", &error_str);
-        Ok(json!([""]))
+        Err(Error::new(ErrorCode::InternalError))
       }
     });
 
@@ -64,21 +75,26 @@ pub fn init_rpc<T>(client: T) where T : Restable + Sync + Send + 'static {
 
       match params.parse::<Vec<Value>>() {
         Ok(param) => {
-          if let Some(p) = param[0].as_str() {
-              if let Ok(_) = delete_process(p, &delete_ref) {
-                Ok(Value::String("process successfully deleted".to_owned()))
-              } else {
-                error!("Could not delete process \"{}\"", p);
-                Ok(Value::String(format!("Could not delete process \"{}\"", p)))
-              }
+          if param.len() > 0 {
+            if let Some(p) = param[0].as_str() {
+                if let Ok(_) = delete_process(p, &delete_ref) {
+                  Ok(Value::String("process successfully deleted".to_owned()))
+                } else {
+                  error!("Could not delete process \"{}\"", p);
+                  Err(Error::new(ErrorCode::InternalError))
+                }
+            } else {
+              error!("{}", &error_str);
+              Err(Error::new(ErrorCode::ParseError))
+            }
           } else {
             error!("{}", &error_str);
-            Ok(Value::String(error_str.to_string()))
+            Err(Error::new(ErrorCode::ParseError))
           }
         },
         Err(_) => {
           error!("{}", &error_str);
-          Ok(Value::String(error_str.to_string()))
+          Err(Error::new(ErrorCode::ParseError))
         }
       }
     });
