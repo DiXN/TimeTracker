@@ -65,8 +65,6 @@ pub fn init<T>(client: T) -> Result<(), Box<dyn Error>> where T : Restable + Clo
     });
   }
 
-
-
   Ok(())
 }
 
@@ -107,6 +105,17 @@ pub fn add_process<T: Restable>(process: &str, path: &str, client: &Arc<RwLock<T
     .lock()
     .unwrap()
     .insert(process.to_owned(), (false, false));
+
+  Ok(())
+}
+
+pub fn delete_process<T: Restable>(process: &str, client: &Arc<RwLock<T>>) -> Result<(), Box<dyn Error>> {
+  client.read().unwrap().delete_data(process)?;
+
+  PROCESS_MAP
+    .lock()
+    .unwrap()
+    .remove(process);
 
   Ok(())
 }

@@ -63,6 +63,16 @@ impl Restable for FirebaseClient {
     )?)
   }
 
+  fn delete_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
+    let url = format!("{}/apps/{}.json?auth={}", &self.base_url, item, &self.authentication);
+
+    Ok(Client::new()
+      .delete(&url)
+      .send()
+      .and_then(|mut res| Ok(res.json::<Value>()?)
+    )?)
+  }
+
   fn patch_data(&self, item: &str, value: &Value) -> Result<Value, Box<dyn Error>> {
     let url = format!("{}/apps/{}.json?auth={}", &self.base_url, item, &self.authentication);
 

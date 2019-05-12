@@ -9,7 +9,7 @@ use jsonrpc_core::{IoHandler, Params};
 use jsonrpc_http_server::ServerBuilder;
 
 use crate::restable::Restable;
-use crate::time_tracking::add_process;
+use crate::time_tracking::{delete_process, add_process};
 
 pub fn init_rpc<T>(client: T) where T : Restable + Sync + Send + 'static {
   let client_arc = Arc::new(RwLock::new(client));
@@ -47,7 +47,6 @@ pub fn init_rpc<T>(client: T) where T : Restable + Sync + Send + 'static {
     });
 
     let get_ref = client_arc.clone();
-
     io.add_method("get_processes", move |_| {
       let error_str = "Could not get processes!";
 
@@ -56,6 +55,31 @@ pub fn init_rpc<T>(client: T) where T : Restable + Sync + Send + 'static {
       } else {
         error!("{}", &error_str);
         Ok(json!([""]))
+      }
+    });
+
+    let delete_ref = client_arc.clone();
+    io.add_method("delete_process", move |params: Params| {
+      let error_str = "params for \"delete_process\" are invalid!";
+
+      match params.parse::<Vec<Value>>() {
+        Ok(param) => {
+          if let Some(p) = param[0].as_str() {
+              if let Ok(_) = delete_process(p, &delete_ref) {
+                Ok(Value::String("process successfully deleted".to_owned()))
+              } else {
+                error!("Could not delete process \"{}\"", p);
+                Ok(Value::String(format!("Could not delete process \"{}\"", p)))
+              }
+          } else {
+            error!("{}", &error_str);
+            Ok(Value::String(error_str.to_string()))
+          }
+        },
+        Err(_) => {
+          error!("{}", &error_str);
+          Ok(Value::String(error_str.to_string()))
+        }
       }
     });
 
