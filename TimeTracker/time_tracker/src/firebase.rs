@@ -116,7 +116,7 @@ impl Restable for FirebaseClient {
           (item, ReceiveTypes::LAUNCHES) => patch_increment(&item, "launches"),
           (item, ReceiveTypes::TIMELINE) => {
             let dt = Local::now();
-            let date_str = format!("apps/{}/timeline/{}/{}/{}", item, dt.year().to_string(), (dt.month() - 1).to_string(), dt.day().to_string());
+            let date_str = format!("apps/{}/timeline/year/{}/{}/{}", item, dt.year().to_string(), (dt.month() - 1).to_string(), dt.day().to_string());
 
             if let Ok(ret) = self.get_data(&date_str) {
               let current_value = if let Some(mut inc) = ret.as_i64() {
@@ -126,7 +126,7 @@ impl Restable for FirebaseClient {
                 1
               };
 
-              let date_str = format!("{}/timeline/{}/{}", item, dt.year().to_string(), (dt.month() - 1).to_string());
+              let date_str = format!("{}/timeline/year/{}/{}", item, dt.year().to_string(), (dt.month() - 1).to_string());
               if let Ok(o) = self.patch_data(&date_str, &json!({dt.day().to_string(): current_value})) {
                 info!("{}: {}", item, o);
               }
