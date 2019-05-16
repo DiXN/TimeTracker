@@ -21,6 +21,10 @@ mod restable;
 
 mod rpc;
 
+mod sql;
+use crate::sql::PgClient;
+use crate::restable::Restable;
+
 extern {
   pub fn query_file_info(process: *const c_char) -> *const c_char;
   pub fn is_process_running(process: *const c_char) -> bool;
@@ -55,8 +59,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
   let config = fs::read_to_string("env.json")?;
   let config : Value = serde_json::from_str(&config)?;
-  let firebase_client = FirebaseClient::new(config["url"].as_str().unwrap(), config["key"].as_str().unwrap());
-  time_tracking::init(firebase_client).unwrap();
+  //let firebase_client = FirebaseClient::new(config["url"].as_str().unwrap(), config["key"].as_str().unwrap());
+  //time_tracking::init(firebase_client).unwrap();
+
+  let pg_client = PgClient::new("postgres://postgres:root@10.0.0.5:5432/time_tracker");
+  println!("{:?}", pg_client.get_processes());
+
 
   Ok(())
 }
