@@ -25,6 +25,17 @@ impl FirebaseClient {
       base_url: base_url.to_owned()
     }
   }
+
+  fn patch_data(&self, item: &str, value: &Value) -> Result<Value, Box<dyn Error>> {
+    let url = format!("{}/apps/{}.json?auth={}", &self.base_url, item, &self.authentication);
+
+    Ok(Client::new()
+      .patch(&url)
+      .json(value)
+      .send()
+      .and_then(|mut res| Ok(res.json::<Value>()?)
+    )?)
+  }
 }
 
 impl Restable for FirebaseClient {
@@ -68,17 +79,6 @@ impl Restable for FirebaseClient {
 
     Ok(Client::new()
       .delete(&url)
-      .send()
-      .and_then(|mut res| Ok(res.json::<Value>()?)
-    )?)
-  }
-
-  fn patch_data(&self, item: &str, value: &Value) -> Result<Value, Box<dyn Error>> {
-    let url = format!("{}/apps/{}.json?auth={}", &self.base_url, item, &self.authentication);
-
-    Ok(Client::new()
-      .patch(&url)
-      .json(value)
       .send()
       .and_then(|mut res| Ok(res.json::<Value>()?)
     )?)

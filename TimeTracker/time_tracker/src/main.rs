@@ -23,6 +23,8 @@ mod rpc;
 mod sql;
 #[cfg(feature = "psql")]
 use crate::sql::PgClient;
+#[cfg(feature = "psql")]
+mod sql_queries;
 
 extern {
   pub fn query_file_info(process: *const c_char) -> *const c_char;
@@ -51,7 +53,7 @@ macro_rules! ns_invoke {
 }
 
 #[cfg(feature = "firebase")]
-fn init_client() {
+fn init_client() -> Result<(), Box<dyn Error>> {
   use std::fs;
   use serde_json::Value;
 
@@ -59,12 +61,16 @@ fn init_client() {
   let config : Value = serde_json::from_str(&config)?;
   let firebase_client = FirebaseClient::new(config["url"].as_str().unwrap(), config["key"].as_str().unwrap());
   time_tracking::init(firebase_client).unwrap();
+
+  Ok(())
 }
 
 #[cfg(feature = "psql")]
-fn init_client() {
+fn init_client() -> Result<(), Box<dyn Error>> {
   let pg_client = PgClient::new("postgres://postgres:root@10.0.0.5:5432/time_tracker");
   time_tracking::init(pg_client).unwrap();
+
+  Ok(())
 }
 
 
@@ -74,6 +80,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
   Builder::from_env(env).init();
 
-  init_client();
+  init_client()?;
   Ok(())
 }

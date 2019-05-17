@@ -1,5 +1,3 @@
-use crate::restable::Restable;
-
 use std::{
   collections::HashMap,
   sync::{Arc, Mutex, RwLock},
@@ -14,6 +12,7 @@ use crate::{n_str, is_process_running, ns_invoke, query_file_info};
 
 use crate::receive_types::ReceiveTypes;
 use crate::rpc::init_rpc;
+use crate::restable::Restable;
 
 lazy_static! {
   static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = {
@@ -46,7 +45,7 @@ pub fn init<T>(client: T) -> Result<(), Box<dyn Error>> where T : Restable + Clo
       let mut counter = 0;
 
       loop {
-        thread::sleep(Duration::from_millis(60000));
+        thread::sleep(Duration::from_secs(60));
 
         if let Some((fst, snd)) = PROCESS_MAP.lock().unwrap().get_mut(&p) {
           if *fst {
