@@ -106,6 +106,8 @@ pub fn add_process<T: Restable>(process: &str, path: &str, client: &Arc<RwLock<T
     .unwrap()
     .insert(process.to_owned(), (false, false));
 
+  info!("Process {} has been added.", process);
+
   Ok(())
 }
 
@@ -116,6 +118,8 @@ pub fn delete_process<T: Restable>(process: &str, client: &Arc<RwLock<T>>) -> Re
     .lock()
     .unwrap()
     .remove(process);
+
+  info!("Process {} has been deleted.", process);
 
   Ok(())
 }
