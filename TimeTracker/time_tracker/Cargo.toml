@@ -22,6 +22,10 @@ jsonrpc-http-server = "11.0.0"
 lazy_static = "1.3.0"
 postgres = { version = "0.15.2", features = ["with-chrono"], optional = true }
 
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3.7", features = ["tlhelp32", "handleapi"] }
+wio = "0.2.2"
+
 [features]
 firebase = ["reqwest"]
 psql = ["postgres"]

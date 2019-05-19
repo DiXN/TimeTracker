@@ -26,9 +26,13 @@ use crate::sql::PgClient;
 #[cfg(feature = "psql")]
 mod sql_queries;
 
+mod native;
+
+#[cfg(windows)]
+mod windows;
+
 extern {
   pub fn query_file_info(process: *const c_char) -> *const c_char;
-  pub fn is_process_running(process: *const c_char) -> bool;
 }
 
 #[macro_export(local_inner_macros)]
@@ -72,7 +76,6 @@ fn init_client() -> Result<(), Box<dyn Error>> {
 
   Ok(())
 }
-
 
 fn main() -> Result<(), Box<dyn Error>> {
   let env = Env::default()

@@ -17,7 +17,6 @@ extern "C"
 using namespace std;
 
 const char* query_file_info(const char* path);
-bool is_process_running(const char* process);
 
 #ifdef __cplusplus
 }

@@ -8,11 +8,12 @@ use std::{
 
 use crossbeam_channel::{Sender, unbounded};
 
-use crate::{n_str, is_process_running, ns_invoke, query_file_info};
+use crate::{n_str, ns_invoke, query_file_info};
 
 use crate::receive_types::ReceiveTypes;
 use crate::rpc::init_rpc;
 use crate::restable::Restable;
+use crate::native::are_processes_running;
 
 lazy_static! {
   static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = {
@@ -70,18 +71,29 @@ pub fn init<T>(client: T) -> Result<(), Box<dyn Error>> where T : Restable + Clo
 fn check_processes(spawn_tx: Sender<String>) {
   thread::spawn(move|| {
     loop {
-      for (p, (fst, snd)) in PROCESS_MAP.lock().unwrap().iter_mut() {
-        if unsafe { is_process_running(n_str!(format!("{}.exe", p)).as_ptr()) } {
-          *fst = true;
-          if !*snd {
-            *snd = true;
-            spawn_tx.send(p.to_owned()).unwrap();
-          }
-        } else {
-          *fst = false;
-        }
+      let p_map = PROCESS_MAP.lock().unwrap();
 
-        //debug!("{}, {}, {}", p, fst, snd);
+      let processes = p_map
+                        .iter()
+                        .map(|(key, _)| format!("{}.exe", key))
+                        .collect::<Vec<String>>();
+
+      drop(p_map);
+
+      if let Ok(m) = are_processes_running(&processes[..]) {
+        for (p, (fst, snd)) in PROCESS_MAP.lock().unwrap().iter_mut() {
+          if *m.get(&format!("{}.exe", p)).unwrap() {
+            *fst = true;
+            if !*snd {
+              *snd = true;
+              spawn_tx.send(p.to_owned()).unwrap();
+            }
+          } else {
+            *fst = false;
+          }
+
+          //debug!("{}, {}, {}", p, fst, snd);
+        }
       }
 
       thread::sleep(Duration::from_millis(10000));
