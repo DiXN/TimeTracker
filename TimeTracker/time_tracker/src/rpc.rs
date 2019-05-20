@@ -24,36 +24,27 @@ pub fn init_rpc<T>(client: T) where T : Restable + Sync + Send + 'static {
 
     let add_ref = client_arc.clone();
     io.add_method("add_process", move |params: Params| {
-      let error_str = "params for \"add_process\" are invalid!";
+
+      let error_cb = || {
+        error!("params for \"add_process\" are invalid!");
+        Err(Error::new(ErrorCode::ParseError))
+      };
 
       match params.parse::<Vec<Value>>() {
-        Ok(param) => {
-          if param.len() > 1 {
-            if let Some(p) = param[0].as_str() {
-              if let Some(path) = param[1].as_str() {
-                if let Ok(_) = add_process(p, path, &add_ref) {
-                  Ok(Value::String("process successfully added".to_owned()))
-                } else {
-                  error!("Could not add process \"{}\"", p);
-                  Err(Error::new(ErrorCode::InternalError))
-                }
+        Ok(ref param) if param.len() > 1 => {
+          match (param[0].as_str(), param[1].as_str()) {
+            (Some(p), Some(path)) => {
+              if let Ok(_) = add_process(p, path, &add_ref) {
+                Ok(Value::String("process successfully added".to_owned()))
               } else {
-                error!("{}", &error_str);
-                Err(Error::new(ErrorCode::ParseError))
+                error!("Could not add process \"{}\"", p);
+                Err(Error::new(ErrorCode::InternalError))
               }
-            } else {
-              error!("{}", &error_str);
-              Err(Error::new(ErrorCode::ParseError))
-            }
-          } else {
-            error!("{}", &error_str);
-            Err(Error::new(ErrorCode::ParseError))
+            },
+            _ => error_cb()
           }
         },
-        Err(_) => {
-          error!("{}", &error_str);
-          Err(Error::new(ErrorCode::ParseError))
-        }
+        _ => error_cb()
       }
     });
 
@@ -71,31 +62,27 @@ pub fn init_rpc<T>(client: T) where T : Restable + Sync + Send + 'static {
 
     let delete_ref = client_arc.clone();
     io.add_method("delete_process", move |params: Params| {
-      let error_str = "params for \"delete_process\" are invalid!";
+
+      let error_cb = || {
+        error!("params for \"delete_process\" are invalid!");
+        Err(Error::new(ErrorCode::ParseError))
+      };
 
       match params.parse::<Vec<Value>>() {
-        Ok(param) => {
-          if param.len() > 0 {
-            if let Some(p) = param[0].as_str() {
-                if let Ok(_) = delete_process(p, &delete_ref) {
-                  Ok(Value::String("process successfully deleted".to_owned()))
-                } else {
-                  error!("Could not delete process \"{}\"", p);
-                  Err(Error::new(ErrorCode::InternalError))
-                }
-            } else {
-              error!("{}", &error_str);
-              Err(Error::new(ErrorCode::ParseError))
-            }
-          } else {
-            error!("{}", &error_str);
-            Err(Error::new(ErrorCode::ParseError))
+        Ok(ref param) if param.len() > 0 => {
+          match param[0].as_str() {
+            Some(p) => {
+              if let Ok(_) = delete_process(p, &delete_ref) {
+                Ok(Value::String("process successfully deleted".to_owned()))
+              } else {
+                error!("Could not delete process \"{}\"", p);
+                Err(Error::new(ErrorCode::InternalError))
+              }
+            },
+            _ => error_cb()
           }
         },
-        Err(_) => {
-          error!("{}", &error_str);
-          Err(Error::new(ErrorCode::ParseError))
-        }
+        _ => error_cb()
       }
     });
 
