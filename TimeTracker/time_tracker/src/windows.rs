@@ -6,6 +6,8 @@ use std::{
   io::ErrorKind
 };
 
+use regex::Regex;
+
 use winapi::um::tlhelp32::{
   CreateToolhelp32Snapshot,
   Process32FirstW,
@@ -15,9 +17,14 @@ use winapi::um::tlhelp32::{
 };
 
 use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
-use winapi::shared::minwindef::MAX_PATH;
+use winapi::shared::minwindef::{DWORD, MAX_PATH};
+
+use winapi::um::winver::{GetFileVersionInfoSizeA, GetFileVersionInfoA};
+use winapi::ctypes::c_void;
 
 use wio::wide::FromWide;
+
+use crate::n_str;
 
 //reference: https://users.rust-lang.org/t/comparing-a-string-to-an-array-of-i8/5120
 pub fn nt_are_processes_running<'a>(processes: &'a [String]) -> Result<HashMap<&'a String, bool>, Error> {
@@ -76,4 +83,35 @@ pub fn nt_are_processes_running<'a>(processes: &'a [String]) -> Result<HashMap<&
   unsafe { CloseHandle(process_handle) };
 
   Ok(map)
+}
+
+pub fn nt_ver_query_value(path: &str) -> Option<String> {
+  let mut ver_handle : DWORD = 0;
+  let n_path = n_str!(path);
+  let ver_size = unsafe { GetFileVersionInfoSizeA(n_path.as_ptr(), &mut ver_handle) };
+
+  if ver_size == 0 {
+    return None;
+  }
+
+  let mut buffer : Vec<u8> = Vec::with_capacity(ver_size as usize);
+  unsafe { buffer.set_len(ver_size as usize) };
+
+  if unsafe { GetFileVersionInfoA(n_path.as_ptr(), ver_handle, ver_size, buffer.as_mut_ptr() as *mut c_void) } != 0 {
+    let file_info = String::from_utf8_lossy(&buffer).into_owned();
+
+    let replace_regex = Regex::new(r"[^0-9a-zA-Z :]").unwrap();
+    let res = replace_regex.replace_all(&file_info, "");
+
+    let product_name_regex = Regex::new(r"ProductName(.*).ProductVersion").unwrap();
+
+    let mut matches = product_name_regex.captures_iter(&res);
+
+    matches
+      .next()
+      .and_then(|r| r.get(1))
+      .map(|p| p.as_str().to_owned())
+  } else {
+    None
+  }
 }

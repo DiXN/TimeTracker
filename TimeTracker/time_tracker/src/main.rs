@@ -3,8 +3,6 @@
 
 use std::error::Error;
 
-use libc::c_char;
-
 use env_logger::{Builder, Env};
 
 mod receive_types;
@@ -30,10 +28,6 @@ mod native;
 
 #[cfg(windows)]
 mod windows;
-
-extern {
-  pub fn query_file_info(process: *const c_char) -> *const c_char;
-}
 
 #[macro_export(local_inner_macros)]
 macro_rules! n_str {

@@ -3,10 +3,6 @@ name = "time_tracker"
 version = "0.1.0"
 authors = ["Michael Kaltschmid <kaltschmidmichael@gmail.com>"]
 edition = "2018"
-build = "build.rs"
-
-[build-dependencies]
-cc = "1.0.34"
 
 [dependencies]
 libc = "0.2.51"
@@ -23,8 +19,9 @@ lazy_static = "1.3.0"
 postgres = { version = "0.15.2", features = ["with-chrono"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.7", features = ["tlhelp32", "handleapi"] }
+winapi = { version = "0.3.7", features = ["tlhelp32", "handleapi", "winver", "errhandlingapi"] }
 wio = "0.2.2"
+regex = "1.1.6"
 
 [features]
 firebase = ["reqwest"]

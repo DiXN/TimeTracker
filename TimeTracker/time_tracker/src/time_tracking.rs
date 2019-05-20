@@ -8,12 +8,10 @@ use std::{
 
 use crossbeam_channel::{Sender, unbounded};
 
-use crate::{n_str, ns_invoke, query_file_info};
-
 use crate::receive_types::ReceiveTypes;
 use crate::rpc::init_rpc;
 use crate::restable::Restable;
-use crate::native::are_processes_running;
+use crate::native::{are_processes_running, ver_query_value};
 
 lazy_static! {
   static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = {
@@ -102,15 +100,13 @@ fn check_processes(spawn_tx: Sender<String>) {
 }
 
 pub fn add_process<T: Restable>(process: &str, path: &str, client: &Arc<RwLock<T>>) -> Result<(), Box<dyn Error>> {
-  let product_name = ns_invoke!(query_file_info, n_str!(path));
-
-  let product_name = if !product_name.is_empty() {
-    &product_name
+  let product_name = if let Some(p_name) = ver_query_value(path) {
+    p_name
   } else {
-    process
+    process.to_owned()
   };
 
-  client.read().unwrap().put_data(process, product_name)?;
+  client.read().unwrap().put_data(process, &product_name)?;
 
   PROCESS_MAP
     .lock()
