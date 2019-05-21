@@ -1,9 +1,16 @@
 use std::{
   mem,
+  str,
+  env,
+  ptr,
+  thread,
   ffi::OsString,
   collections::HashMap,
   io::Error,
-  io::ErrorKind
+  io::ErrorKind,
+  error::Error as Std_Error,
+  process::{Command, Stdio, ExitStatus, exit},
+  io::{BufWriter, Write},
 };
 
 use regex::Regex;
@@ -22,7 +29,11 @@ use winapi::shared::minwindef::{DWORD, MAX_PATH};
 use winapi::um::winver::{GetFileVersionInfoSizeA, GetFileVersionInfoA};
 use winapi::ctypes::c_void;
 
+use winapi::um::winuser::ShowWindow;
+use winapi::um::wincon::GetConsoleWindow;
+
 use wio::wide::FromWide;
+use systray::Application;
 
 use crate::n_str;
 
@@ -114,4 +125,75 @@ pub fn nt_ver_query_value(path: &str) -> Option<String> {
   } else {
     None
   }
+}
+
+pub fn nt_autostart() -> Result<ExitStatus, Box<dyn Std_Error>> {
+  let auto_cmd = Command::new("powershell")
+    .args(&["-Command", "[environment]::getfolderpath(\"Startup\")"])
+    .output()?;
+
+  let auto_path = str::from_utf8(&auto_cmd.stdout)?.trim();
+
+  let mut process = Command::new("powershell")
+    .args(&["-Command", "-"])
+    .stdin(Stdio::piped())
+    .spawn()?;
+
+  {
+    let mut out_stdin = process.stdin.as_mut().expect("Could not collect stdin.");
+
+    let mut writer = BufWriter::new(&mut out_stdin);
+
+    match env::current_exe() {
+      Ok(exe_path) => {
+        //reference: https://stackoverflow.com/a/47340271
+        writer.write_all("$WshShell = New-Object -comObject WScript.Shell;".as_bytes())?;
+        writer.write_all(format!("$Shortcut = $WshShell.CreateShortcut(\"{}\\time_tracker.lnk\");", auto_path).as_bytes())?;
+        writer.write_all(format!("$Shortcut.TargetPath = \"{}\";", exe_path.display()).as_bytes())?;
+        writer.write_all("$Shortcut.WindowStyle = 7;".as_bytes())?;
+        writer.write_all("$Shortcut.Save();".as_bytes())?;
+      },
+      Err(e) => panic!(e)
+    };
+  }
+
+  Ok(process.wait()?)
+}
+
+pub fn nt_init_tray() {
+  thread::spawn(move || {
+    if let Ok(mut app) = Application::new() {
+      let window = unsafe { GetConsoleWindow() };
+
+      if window != ptr::null_mut() {
+        unsafe {
+          ShowWindow(window, 0);
+        }
+      }
+
+      match app.set_icon_from_resource(&"tray_icon".to_string()) {
+        Ok(_) => (),
+        Err(e) => error!("{}", e)
+      };
+
+      app.add_menu_item(&"Show".to_string(), move |_| {
+        if window != ptr::null_mut() {
+          unsafe {
+            ShowWindow(window, 5);
+          }
+        }
+      }).ok();
+
+      app.add_menu_item(&"Hide".to_string(), move |_| {
+        if window != ptr::null_mut() {
+          unsafe {
+            ShowWindow(window, 0);
+          }
+        }
+      }).ok();
+
+      app.add_menu_item(&"Quit".to_string(), |_| exit(0)).ok();
+      app.wait_for_message();
+    }
+  });
 }

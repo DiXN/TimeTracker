@@ -25,6 +25,7 @@ use crate::sql::PgClient;
 mod sql_queries;
 
 mod native;
+use crate::native::{init_tray, autostart};
 
 #[cfg(windows)]
 mod windows;
@@ -77,6 +78,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
   Builder::from_env(env).init();
 
+  autostart()?;
+  init_tray();
   init_client()?;
+
   Ok(())
 }
