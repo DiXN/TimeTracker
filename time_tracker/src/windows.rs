@@ -161,6 +161,8 @@ pub fn nt_autostart() -> Result<ExitStatus, Box<dyn Std_Error>> {
 }
 
 pub fn nt_init_tray() {
+  use crate::time_tracking::pause;
+
   thread::spawn(move || {
     if let Ok(mut app) = Application::new() {
       let window = unsafe { GetConsoleWindow() };
@@ -175,6 +177,8 @@ pub fn nt_init_tray() {
         Ok(_) => (),
         Err(e) => error!("{}", e)
       };
+
+      app.set_tooltip(&"time_tracker".to_owned()).ok();
 
       app.add_menu_item(&"Show".to_string(), move |_| {
         if window != ptr::null_mut() {
@@ -191,6 +195,18 @@ pub fn nt_init_tray() {
           }
         }
       }).ok();
+
+      app.add_menu_separator().ok();
+
+      app.add_menu_item(&"Pause".to_string(), move |_| {
+        if pause() {
+          info!("\"time_tracker\" has been paused.");
+        } else {
+          info!("\"time_tracker\" has been resumed.");
+        }
+      }).ok();
+
+      app.add_menu_separator().ok();
 
       app.add_menu_item(&"Quit".to_string(), |_| exit(0)).ok();
       app.wait_for_message();

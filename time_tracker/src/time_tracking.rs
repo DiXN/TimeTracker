@@ -17,6 +17,10 @@ lazy_static! {
   static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = {
     Mutex::new(HashMap::new())
   };
+
+  static ref PAUSE: RwLock<bool> = {
+    RwLock::new(false)
+  };
 }
 
 pub fn init<T>(client: T) -> Result<(), Box<dyn Error>> where T : Restable + Clone + Sync + Send + 'static {
@@ -78,19 +82,21 @@ fn check_processes(spawn_tx: Sender<String>) {
 
       drop(p_map);
 
-      if let Ok(m) = are_processes_running(&processes[..]) {
-        for (p, (fst, snd)) in PROCESS_MAP.lock().unwrap().iter_mut() {
-          if *m.get(&format!("{}.exe", p)).unwrap() {
-            *fst = true;
-            if !*snd {
-              *snd = true;
-              spawn_tx.send(p.to_owned()).unwrap();
+      if *PAUSE.read().unwrap() == false {
+        if let Ok(m) = are_processes_running(&processes[..]) {
+          for (p, (fst, snd)) in PROCESS_MAP.lock().unwrap().iter_mut() {
+            if *m.get(&format!("{}.exe", p)).unwrap() {
+              *fst = true;
+              if !*snd {
+                *snd = true;
+                spawn_tx.send(p.to_owned()).unwrap();
+              }
+            } else {
+              *fst = false;
             }
-          } else {
-            *fst = false;
-          }
 
-          //debug!("{}, {}, {}", p, fst, snd);
+            //debug!("{}, {}, {}", p, fst, snd);
+          }
         }
       }
 
@@ -129,4 +135,14 @@ pub fn delete_process<T: Restable>(process: &str, client: &Arc<RwLock<T>>) -> Re
   info!("Process {} has been deleted.", process);
 
   Ok(())
+}
+
+pub fn pause() -> bool {
+  if *PAUSE.read().unwrap() == false {
+    *PAUSE.write().unwrap() = true;
+  } else {
+    *PAUSE.write().unwrap() = false;
+  }
+
+  *PAUSE.read().unwrap()
 }
