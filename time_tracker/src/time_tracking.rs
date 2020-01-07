@@ -24,6 +24,15 @@ lazy_static! {
   };
 }
 
+//"time_tracker" is not paused.
+macro_rules! active {
+  { $($b:tt)* } => {{
+    if *PAUSE.read().unwrap() == false {
+      $($b)*
+    }
+  }}
+}
+
 pub fn init<T>(client: T) -> Result<(), Box<dyn Error>> where T : Restable + Clone + Sync + Send + 'static {
   for p in client.get_processes()? {
     PROCESS_MAP
@@ -47,16 +56,14 @@ pub fn init<T>(client: T) -> Result<(), Box<dyn Error>> where T : Restable + Clo
     let tx_arc_clone = tx_arc.clone();
 
     thread::spawn(move || {
-      if *PAUSE.read().unwrap() == false {
-        tx_arc_clone.send((p.to_owned(), ReceiveTypes::LAUNCHES)).unwrap();
-      }
+      active! { tx_arc_clone.send((p.to_owned(), ReceiveTypes::LAUNCHES)).unwrap(); };
 
       let mut counter = 0;
 
       loop {
         thread::sleep(Duration::from_secs(60));
 
-        if *PAUSE.read().unwrap() == false {
+        active! {
           if let Some((fst, snd)) = PROCESS_MAP.lock().unwrap().get_mut(&p) {
             if *fst {
               tx_arc_clone.send((p.to_owned(), ReceiveTypes::DURATION)).unwrap();
@@ -70,9 +77,7 @@ pub fn init<T>(client: T) -> Result<(), Box<dyn Error>> where T : Restable + Clo
         }
       }
 
-      if *PAUSE.read().unwrap() == false {
-        tx_arc_clone.send((format!("{};{}", p.to_owned(), counter.to_string()), ReceiveTypes::LONGEST_SESSION)).unwrap();
-      }
+      active! { tx_arc_clone.send((format!("{};{}", p.to_owned(), counter.to_string()), ReceiveTypes::LONGEST_SESSION)).unwrap(); }
 
       info!("Process: {} has finished.", p)
     });
