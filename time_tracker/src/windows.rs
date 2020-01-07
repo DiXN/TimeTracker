@@ -176,25 +176,25 @@ pub fn nt_get_foreground_meta() -> (Option<String>, Option<String>) {
     unsafe { buffer.set_len(MAX_PATH) };
 
     if unsafe { QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut (MAX_PATH as u32)) } > 0 {
-      let process_name = OsString::from_wide(&buffer)
+      let process_path = OsString::from_wide(&buffer)
                           .to_string_lossy()
                           .into_owned();
 
-      let process_name = process_name.find(".exe")
+      let process_path = process_path.find(".exe")
                           .and_then(|idx| Some(
-                            process_name
+                            process_path
                               .chars()
                               .take(idx + 4)
                               .collect::<String>()
                           ));
 
-      let file_name = process_name
+      let process = process_path
                         .to_owned()
                         .and_then(|pn| Path::new(&pn)
-                                        .file_name()
+                                        .file_stem()
                                         .and_then(|p| Some(p.to_string_lossy().into_owned())));
 
-      return (process_name, file_name);
+      return (process_path, process);
     }
   }
 
