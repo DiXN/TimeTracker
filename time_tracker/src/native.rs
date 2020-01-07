@@ -5,7 +5,7 @@ use std::{
   process::ExitStatus
 };
 
-use crate::windows::{nt_are_processes_running, nt_ver_query_value, nt_autostart, nt_init_tray};
+use crate::windows::{nt_are_processes_running, nt_ver_query_value, nt_autostart, nt_init_tray, nt_get_foreground_meta};
 
 #[cfg(windows)]
 pub fn are_processes_running<'a>(processes: &'a [String]) -> Result<HashMap<&'a String, bool>, Error> {
@@ -51,4 +51,14 @@ pub fn init_tray() {
 #[cfg(not(target_os = "windows"))]
 pub fn init_tray() {
 
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_foreground_meta() -> (Option<String>, Option<String>) {
+  nt_get_foreground_meta()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_foreground_meta() -> (Option<String>, Option<String>) {
+  (None, None)
 }

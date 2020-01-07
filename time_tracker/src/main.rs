@@ -16,6 +16,7 @@ use crate::firebase::FirebaseClient;
 mod restable;
 
 mod rpc;
+mod hook;
 
 #[cfg(feature = "psql")]
 mod sql;

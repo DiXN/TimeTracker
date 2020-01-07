@@ -11,6 +11,7 @@ use std::{
   error::Error as Std_Error,
   process::{Command, Stdio, ExitStatus, exit},
   io::{BufWriter, Write},
+  path::Path
 };
 
 use regex::Regex;
@@ -29,8 +30,12 @@ use winapi::shared::minwindef::{DWORD, MAX_PATH};
 use winapi::um::winver::{GetFileVersionInfoSizeA, GetFileVersionInfoA};
 use winapi::ctypes::c_void;
 
-use winapi::um::winuser::ShowWindow;
+use winapi::um::winuser::{ShowWindow, GetForegroundWindow, GetWindowThreadProcessId};
 use winapi::um::wincon::GetConsoleWindow;
+
+use winapi::um::winnt::{PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
+use winapi::um::processthreadsapi::OpenProcess;
+use winapi::um::winbase::QueryFullProcessImageNameW;
 
 use wio::wide::FromWide;
 use systray::Application;
@@ -158,6 +163,42 @@ pub fn nt_autostart() -> Result<ExitStatus, Box<dyn Std_Error>> {
   }
 
   Ok(process.wait()?)
+}
+
+pub fn nt_get_foreground_meta() -> (Option<String>, Option<String>) {
+  let window = unsafe { GetForegroundWindow() };
+  let mut thread_id : u32 = 0;
+  unsafe { GetWindowThreadProcessId(window, &mut thread_id) };
+  let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, thread_id) };
+
+  if handle != ptr::null_mut() {
+    let mut buffer : Vec<u16> = Vec::with_capacity(MAX_PATH);
+    unsafe { buffer.set_len(MAX_PATH) };
+
+    if unsafe { QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut (MAX_PATH as u32)) } > 0 {
+      let process_name = OsString::from_wide(&buffer)
+                          .to_string_lossy()
+                          .into_owned();
+
+      let process_name = process_name.find(".exe")
+                          .and_then(|idx| Some(
+                            process_name
+                              .chars()
+                              .take(idx + 4)
+                              .collect::<String>()
+                          ));
+
+      let file_name = process_name
+                        .to_owned()
+                        .and_then(|pn| Path::new(&pn)
+                                        .file_name()
+                                        .and_then(|p| Some(p.to_string_lossy().into_owned())));
+
+      return (process_name, file_name);
+    }
+  }
+
+  (None, None)
 }
 
 pub fn nt_init_tray() {

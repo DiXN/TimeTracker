@@ -12,6 +12,7 @@ use crate::receive_types::ReceiveTypes;
 use crate::rpc::init_rpc;
 use crate::restable::Restable;
 use crate::native::{are_processes_running, ver_query_value};
+use crate::hook::init_hook;
 
 lazy_static! {
   static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = {
@@ -30,6 +31,8 @@ pub fn init<T>(client: T) -> Result<(), Box<dyn Error>> where T : Restable + Clo
       .unwrap()
       .insert(p, (false, false));
   }
+
+  init_hook();
 
   let (tx, rx) = unbounded();
   let tx_arc = Arc::new(tx);
