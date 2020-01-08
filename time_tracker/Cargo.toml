@@ -18,6 +18,8 @@ jsonrpc-http-server = "14.0.5"
 lazy_static = "1.4.0"
 postgres = { version = "0.15.2", features = ["with-chrono"], optional = true }
 inputbot = "0.4.0"
+rodio = { version = "0.10.0", default-features = false, features = ["lewton"] }
+rust-embed = "5.2.0"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["tlhelp32", "handleapi", "winver", "winuser", "wincon", "shellapi"] }

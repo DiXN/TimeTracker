@@ -1,5 +1,6 @@
 #[macro_use] extern crate log;
 #[macro_use] extern crate lazy_static;
+#[macro_use] extern crate rust_embed;
 
 use std::error::Error;
 
@@ -51,6 +52,10 @@ macro_rules! ns_invoke {
     }
   }};
 }
+
+#[derive(RustEmbed)]
+#[folder = "resource/"]
+pub struct Asset;
 
 #[cfg(feature = "firebase")]
 fn init_client() -> Result<(), Box<dyn Error>> {
