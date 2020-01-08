@@ -34,7 +34,7 @@ pub fn init_rpc<T>(client: T) where T : Restable + Sync + Send + 'static {
         Ok(ref param) if param.len() > 1 => {
           match (param[0].as_str(), param[1].as_str()) {
             (Some(p), Some(path)) => {
-              if let Ok(_) = add_process(p, path, &add_ref) {
+              if add_process(p, path, &add_ref).is_ok() {
                 Ok(Value::String("process successfully added".to_owned()))
               } else {
                 error!("Could not add process \"{}\"", p);
@@ -69,10 +69,10 @@ pub fn init_rpc<T>(client: T) where T : Restable + Sync + Send + 'static {
       };
 
       match params.parse::<Vec<Value>>() {
-        Ok(ref param) if param.len() > 0 => {
+        Ok(ref param) if !param.is_empty() => {
           match param[0].as_str() {
             Some(p) => {
-              if let Ok(_) = delete_process(p, &delete_ref) {
+              if delete_process(p, &delete_ref).is_ok() {
                 Ok(Value::String("process successfully deleted".to_owned()))
               } else {
                 error!("Could not delete process \"{}\"", p);

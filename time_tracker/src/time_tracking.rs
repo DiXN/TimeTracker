@@ -27,7 +27,7 @@ lazy_static! {
 //"time_tracker" is not paused.
 macro_rules! active {
   { $($b:tt)* } => {{
-    if *PAUSE.read().unwrap() == false {
+    if !(*PAUSE.read().unwrap()) {
       $($b)*
     }
   }}
@@ -153,7 +153,7 @@ pub fn delete_process<T: Restable>(process: &str, client: &Arc<RwLock<T>>) -> Re
 }
 
 pub fn pause() -> bool {
-  if *PAUSE.read().unwrap() == false {
+  if !(*PAUSE.read().unwrap()) {
     *PAUSE.write().unwrap() = true;
   } else {
     *PAUSE.write().unwrap() = false;

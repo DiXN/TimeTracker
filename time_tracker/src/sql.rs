@@ -127,7 +127,7 @@ impl Restable for PgClient {
         if let Some(mut inc) = get_number_from_apps(&self, &inc_type, &item) {
           inc += 1i32;
 
-          if let Ok(_) = update_apps_generic(&self, inc_type, inc, item) {
+          if update_apps_generic(&self, inc_type, inc, item).is_ok() {
             info!("{}: {} -> {}", item, inc_type, inc);
           } else {
             error!("could not update \"{}\" for {}", inc_type, item);
@@ -138,14 +138,14 @@ impl Restable for PgClient {
       while let Ok(rx) = rx.recv() {
         match rx {
           (item, ReceiveTypes::LONGEST_SESSION) => {
-            let split = item.split(";").collect::<Vec<&str>>();
+            let split = item.split(';').collect::<Vec<&str>>();
             let item = split[0];
 
             if let Some(longest_session) = get_longest_session(&self, &item) {
               let current_session = split[1].parse::<i32>().unwrap();
 
               if current_session > longest_session {
-                if let Ok(_) = update_longest_session(&self, current_session, &item) {
+                if update_longest_session(&self, current_session, &item).is_ok() {
                   info!("{}: longest_session -> {}", item, current_session);
                 } else {
                   error!("could not update \"longest_session\" for {}", item);
@@ -162,13 +162,13 @@ impl Restable for PgClient {
             if let Some(mut inc) = get_timeline_duration(&self, &item, &date_str) {
               inc += 1i32;
 
-              if let Ok(_) = update_timeline(&self, inc, &item, &date_str) {
+              if update_timeline(&self, inc, &item, &date_str).is_ok() {
                 info!("{}: timeline -> {}", item, inc);
               } else {
                 error!("could not update \"timeline\" for {}", item);
               }
             } else {
-              if let Ok(_) = insert_timeline(&self, &date_str, &item) {
+              if insert_timeline(&self, &date_str, &item).is_ok() {
                 info!("{}: timeline -> {}", item, 1);
               } else {
                 error!("could not insert into \"timeline\" for {}", item);

@@ -2,7 +2,6 @@ use std::{
   mem,
   str,
   env,
-  ptr,
   thread,
   ffi::OsString,
   collections::HashMap,
@@ -155,8 +154,8 @@ pub fn nt_autostart() -> Result<ExitStatus, Box<dyn Std_Error>> {
         writer.write_all("$WshShell = New-Object -comObject WScript.Shell;".as_bytes())?;
         writer.write_all(format!("$Shortcut = $WshShell.CreateShortcut(\"{}\\time_tracker.lnk\");", auto_path).as_bytes())?;
         writer.write_all(format!("$Shortcut.TargetPath = \"{}\";", exe_path.display()).as_bytes())?;
-        writer.write_all("$Shortcut.WindowStyle = 7;".as_bytes())?;
-        writer.write_all("$Shortcut.Save();".as_bytes())?;
+        writer.write_all(b"$Shortcut.WindowStyle = 7;")?;
+        writer.write_all(b"$Shortcut.Save();")?;
       },
       Err(e) => panic!(e)
     };
@@ -171,7 +170,7 @@ pub fn nt_get_foreground_meta() -> (Option<String>, Option<String>) {
   unsafe { GetWindowThreadProcessId(window, &mut thread_id) };
   let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, thread_id) };
 
-  if handle != ptr::null_mut() {
+  if !handle.is_null() {
     let mut buffer : Vec<u16> = Vec::with_capacity(MAX_PATH);
     unsafe { buffer.set_len(MAX_PATH) };
 
@@ -181,18 +180,18 @@ pub fn nt_get_foreground_meta() -> (Option<String>, Option<String>) {
                           .into_owned();
 
       let process_path = process_path.find(".exe")
-                          .and_then(|idx| Some(
+                          .map(|idx|
                             process_path
                               .chars()
                               .take(idx + 4)
                               .collect::<String>()
-                          ));
+                          );
 
       let process = process_path
                         .to_owned()
                         .and_then(|pn| Path::new(&pn)
                                         .file_stem()
-                                        .and_then(|p| Some(p.to_string_lossy().into_owned())));
+                                        .map(|p| p.to_string_lossy().into_owned()));
 
       return (process_path, process);
     }
@@ -208,7 +207,7 @@ pub fn nt_init_tray() {
     if let Ok(mut app) = Application::new() {
       let window = unsafe { GetConsoleWindow() };
 
-      if window != ptr::null_mut() {
+      if !window.is_null() {
         unsafe {
           ShowWindow(window, 0);
         }
@@ -222,7 +221,7 @@ pub fn nt_init_tray() {
       app.set_tooltip(&"time_tracker".to_owned()).ok();
 
       app.add_menu_item(&"Show".to_string(), move |_| {
-        if window != ptr::null_mut() {
+        if !window.is_null() {
           unsafe {
             ShowWindow(window, 5);
           }
@@ -230,7 +229,7 @@ pub fn nt_init_tray() {
       }).ok();
 
       app.add_menu_item(&"Hide".to_string(), move |_| {
-        if window != ptr::null_mut() {
+        if !window.is_null() {
           unsafe {
             ShowWindow(window, 0);
           }
