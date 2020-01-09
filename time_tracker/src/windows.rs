@@ -239,11 +239,7 @@ pub fn nt_init_tray() {
       app.add_menu_separator().ok();
 
       app.add_menu_item(&"Pause".to_string(), move |_| {
-        if pause() {
-          info!("\"time_tracker\" has been paused.");
-        } else {
-          info!("\"time_tracker\" has been resumed.");
-        }
+        pause();
       }).ok();
 
       app.add_menu_separator().ok();

@@ -162,12 +162,12 @@ pub fn delete_process<T: Restable>(process: &str, client: &Arc<RwLock<T>>) -> Re
   Ok(())
 }
 
-pub fn pause() -> bool {
+pub fn pause() {
   if !(*PAUSE.read().unwrap()) {
     *PAUSE.write().unwrap() = true;
+    info!("\"time_tracker\" has been paused.");
   } else {
     *PAUSE.write().unwrap() = false;
+    info!("\"time_tracker\" has been resumed.");
   }
-
-  *PAUSE.read().unwrap()
 }
