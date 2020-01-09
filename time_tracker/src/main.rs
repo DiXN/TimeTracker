@@ -33,27 +33,6 @@ use crate::native::{init_tray, autostart};
 #[cfg(windows)]
 mod windows;
 
-#[macro_export(local_inner_macros)]
-macro_rules! n_str {
-  ($n_str:expr) => (std::ffi::CString::new($n_str).expect("could not create CString"));
-}
-
-#[macro_export(local_inner_macros)]
-macro_rules! ns_invoke {
-  ($func:expr, $($param:expr)*) => {{
-    let ret = unsafe { $func($($param.as_ptr()), *) };
-
-    if !ret.is_null() {
-      let n_str = unsafe { std::ffi::CStr::from_ptr(ret) };
-      let mut n_str = n_str.to_string_lossy().into_owned();
-      n_str.retain(|c| c != '\u{FFFD}');
-      n_str
-    } else {
-      String::from("")
-    }
-  }};
-}
-
 #[derive(RustEmbed)]
 #[folder = "resource/"]
 pub struct Asset;
