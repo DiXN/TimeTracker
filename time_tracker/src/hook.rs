@@ -14,21 +14,21 @@ use crate::Asset;
 
 pub fn init_hook<T>(client: T) where T : Restable + Sync + Send + 'static {
   let client_arc = Arc::new(RwLock::new(client));
-  thread::spawn(move || {
 
+  thread::spawn(move || {
+    let device = default_output_device().unwrap();
+    let cursor = Arc::new(Cursor::new(Asset::get("when.ogg").unwrap()));
     let add_ref = client_arc.clone();
+
     HomeKey.bind(move || {
       if LShiftKey.is_pressed() && LControlKey.is_pressed() {
         if let (Some(path), Some(file_name)) = get_foreground_meta() {
           if let Err(e) = add_process(&file_name, &path, &add_ref) {
             error!("{}", e);
           } else {
-            let device = default_output_device().unwrap();
-            let cursor = Cursor::new(Asset::get("when.ogg").unwrap());
-
-            let when = play_once(&device, BufReader::new(cursor)).unwrap();
-            when.set_volume(0.2);
-            when.detach();
+              let when = play_once(&device, BufReader::new((*cursor).clone())).unwrap();
+              when.set_volume(0.2);
+              when.detach();
           }
         } else {
           error!("Cannot add process.");

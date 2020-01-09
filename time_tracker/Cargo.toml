@@ -18,7 +18,7 @@ jsonrpc-http-server = "14.0.5"
 lazy_static = "1.4.0"
 postgres = { version = "0.15.2", features = ["with-chrono"], optional = true }
 inputbot = "0.4.0"
-rodio = { version = "0.10.0", default-features = false, features = ["lewton"] }
+rodio = { version = "0.10.0", default-features = false, features = ["vorbis"] }
 rust-embed = "5.2.0"
 
 [target.'cfg(windows)'.dependencies]
