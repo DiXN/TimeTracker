@@ -21,7 +21,7 @@ pub fn init_hook<T>(client: T) where T : Restable + Sync + Send + 'static {
       if LShiftKey.is_pressed() && LControlKey.is_pressed() {
         if let (Some(path), Some(file_name)) = get_foreground_meta() {
           if let Err(e) = add_process(&file_name, &path, &add_ref) {
-            error!("Cannot add process. \n{}", e);
+            error!("{}", e);
           } else {
             let device = default_output_device().unwrap();
             let cursor = Cursor::new(Asset::get("when.ogg").unwrap());

@@ -13,6 +13,8 @@ use crate::rpc::init_rpc;
 use crate::restable::Restable;
 use crate::native::{are_processes_running, ver_query_value};
 use crate::hook::init_hook;
+use crate::error::AddError;
+use crate::box_err;
 
 lazy_static! {
   static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = {
@@ -121,6 +123,14 @@ fn check_processes(spawn_tx: Sender<String>) {
 }
 
 pub fn add_process<T: Restable>(process: &str, path: &str, client: &Arc<RwLock<T>>) -> Result<(), Box<dyn Error>> {
+  if client
+      .read()
+      .unwrap()
+      .get_processes()
+      .map(|ref p| p.contains(&process.to_owned()))? {
+    return box_err!(AddError(format!("Process \"{}\" has already been added before.", process)));
+  }
+
   let product_name = if let Some(p_name) = ver_query_value(path) {
     p_name
   } else {

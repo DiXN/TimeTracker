@@ -6,6 +6,7 @@ use std::error::Error;
 
 use env_logger::{Builder, Env};
 
+mod error;
 mod receive_types;
 mod time_tracking;
 
