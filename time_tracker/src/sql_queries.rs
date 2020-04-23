@@ -17,19 +17,22 @@ pub fn update_timeline(client: &PgClient, inc: i32, item: &str, date_str: &str) 
 }
 
 pub fn insert_timeline(client: &PgClient, date_str: &str, item: &str) -> Result<u64, Box<dyn Error>> {
-  let connection = client.connection.lock().unwrap();
+  let id = match client.get_single_value::<i32>("(SELECT id + 1 as id
+    FROM timeline t
+    ORDER BY id DESC
+    LIMIT 1
+  )") {
+    Some(id) => id,
+    None => 0
+  };
 
-  Ok(connection.execute(
+  Ok(client.connection.lock().unwrap().execute(
     &format!(
-      "INSERT INTO timeline VALUES ((SELECT id + 1 as id
-        FROM timeline t
-        ORDER BY id DESC
-        LIMIT 1
-      ), '{}', 1, (
+      "INSERT INTO timeline VALUES ({}, '{}', 1, (
         SELECT a.id FROM apps a
         WHERE a.name = '{}'
       ))"
-  , date_str, item), &[])?)
+  ,id, date_str, item), &[])?)
 }
 
 pub fn update_longest_session(client: &PgClient, current_session: i32, item: &str) -> Result<u64, Box<dyn Error>> {
@@ -41,6 +44,17 @@ pub fn update_longest_session(client: &PgClient, current_session: i32, item: &st
     SET longest_session = {}
     WHERE name = '{}'"
   , current_session, item), &[])?)
+}
+
+pub fn update_longest_session_on(client: &PgClient, today: &str, item: &str) -> Result<u64, Box<dyn Error>> {
+  let connection = client.connection.lock().unwrap();
+
+  Ok(connection.execute(
+    &format!(
+    "UPDATE apps
+    SET longest_session_on = '{}'
+    WHERE name = '{}'"
+  , today, item), &[])?)
 }
 
 pub fn update_apps_generic(client: &PgClient, inc_type: &str,  inc: i32, item: &str) -> Result<u64, Box<dyn Error>> {

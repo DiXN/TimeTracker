@@ -34,6 +34,7 @@ use crate::sql_queries::{
   update_timeline,
   insert_timeline,
   update_longest_session,
+  update_longest_session_on,
   update_apps_generic,
   get_timeline_duration,
   get_longest_session,
@@ -145,13 +146,16 @@ impl Restable for PgClient {
   }
 
   fn put_data(&self, item: &str, product_name: &str) -> Result<Value, Box<dyn Error>> {
-    &self.connection.lock().unwrap().execute(&format!("
-      INSERT INTO apps VALUES ((SELECT id + 1 as id
-        FROM apps a
-        ORDER BY id DESC
-        LIMIT 1
-      ), 0, 0, 0, '{}', '{}');", item, product_name)
-    , &[])?;
+    let id = match self.get_single_value::<i32>("(SELECT id + 1 as id
+      FROM apps a
+      ORDER BY id DESC
+      LIMIT 1
+    )") {
+      Some(id) => id,
+      None => 0
+    };
+
+    &self.connection.lock().unwrap().execute(&format!("INSERT INTO apps VALUES ({}, 0, 0, 0, '{}', '{}', NULL);", id, item, product_name) , &[])?;
 
     Ok(json!({"insert": item}))
   }
@@ -190,10 +194,19 @@ impl Restable for PgClient {
               let current_session = split[1].parse::<i32>().unwrap();
 
               if current_session > longest_session {
+                let dt = Local::now();
+                let date_str = format!("{}-{}-{}", dt.year(), dt.month(), dt.day());
+
                 if update_longest_session(&self, current_session, &item).is_ok() {
                   info!("{}: longest_session -> {}", item, current_session);
                 } else {
                   error!("could not update \"longest_session\" for {}", item);
+                }
+
+                if update_longest_session_on(&self, &date_str, &item).is_ok() {
+                  info!("{}: longest_session_on -> {}", item, date_str);
+                } else {
+                  error!("could not update \"longest_session_on\" for {}", item);
                 }
               }
             }
