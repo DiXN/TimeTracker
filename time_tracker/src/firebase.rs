@@ -39,6 +39,10 @@ impl FirebaseClient {
 }
 
 impl Restable for FirebaseClient {
+  fn setup(&self) -> Result<(), Box<dyn Error>> {
+    Ok(())
+  }
+
   fn get_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
     let url = format!("{}/{}.json?auth={}", &self.base_url, item, &self.authentication);
     Ok(serde_json::from_str(&reqwest::get(&url)?.text()?)?)
