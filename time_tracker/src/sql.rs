@@ -46,11 +46,23 @@ pub struct PgClient {
 }
 
 impl PgClient {
-  pub fn new(database_url: &str) -> PgClient {
-    let sql_connection = Connection::connect(database_url, TlsMode::None).unwrap();
+  pub fn new(url: &str, database: &str) -> PgClient {
+    if let Ok(basic) = Connection::connect(url, TlsMode::None) {
+      if let Ok(with_db) = Connection::connect(format!("{}/{}", url, database), TlsMode::None) {
+        PgClient {
+          connection: Arc::new(Mutex::new(with_db))
+        }
+      } else {
+        basic.batch_execute("CREATE DATABASE time_tracker").expect("Cannot create Database for \"time_tracker\".");
 
-    PgClient {
-      connection: Arc::new(Mutex::new(sql_connection))
+        let connection = Connection::connect(format!("{}/{}", url, database), TlsMode::None).unwrap();
+
+        PgClient {
+          connection: Arc::new(Mutex::new(connection))
+        }
+      }
+    } else {
+      panic!("Could not connect to Postgres server. Check connection string and if Postgres is running.")
     }
   }
 
