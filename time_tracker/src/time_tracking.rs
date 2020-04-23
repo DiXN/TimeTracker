@@ -36,6 +36,8 @@ macro_rules! active {
 }
 
 pub fn init<T>(client: T) -> Result<(), Box<dyn Error>> where T : Restable + Clone + Sync + Send + 'static {
+  client.setup()?;
+
   for p in client.get_processes()? {
     PROCESS_MAP
       .lock()

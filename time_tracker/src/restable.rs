@@ -11,4 +11,5 @@ pub trait Restable {
   fn put_data(&self, item: &str, product_name: &str) -> Result<Value, Box<dyn Error>>;
   fn delete_data(&self, item: &str) -> Result<Value, Box<dyn Error>>;
   fn init_event_loop(self, recv: Receiver<(String, ReceiveTypes)>);
+  fn setup(&self) -> Result<(), Box<dyn Error>>;
 }

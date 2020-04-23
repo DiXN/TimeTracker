@@ -20,6 +20,7 @@ postgres = { version = "0.15.2", features = ["with-chrono"], optional = true }
 inputbot = "0.4.0"
 rodio = { version = "0.10.0", default-features = false, features = ["vorbis"] }
 rust-embed = "5.2.0"
+barrel = { version = "0.6.5", features = ["pg"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["tlhelp32", "handleapi", "winver", "winuser", "wincon", "shellapi"] }
@@ -32,4 +33,4 @@ embed-resource = "1.3.2"
 
 [features]
 firebase = ["reqwest"]
-psql = ["postgres"]
+psql = ["postgres", "barrel"]

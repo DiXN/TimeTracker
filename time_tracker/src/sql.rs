@@ -21,6 +21,12 @@ use chrono::NaiveDate;
 use serde_json::{json, Value};
 use crossbeam_channel::Receiver;
 
+use barrel::{
+  types,
+  backend::Pg,
+  Migration
+};
+
 use crate::restable::Restable;
 use crate::receive_types::ReceiveTypes;
 
@@ -64,6 +70,33 @@ impl PgClient {
 }
 
 impl Restable for PgClient {
+  fn setup(&self) -> Result<(), Box<dyn Error>> {
+    let connection = &self.connection.lock().unwrap();
+
+    let mut m = Migration::new();
+
+    m.create_table_if_not_exists("apps", |t| {
+      t.add_column("id", types::integer().primary(true));
+      t.add_column("duration", types::integer());
+      t.add_column("launches", types::integer());
+      t.add_column("longest_session", types::integer());
+      t.add_column("name", types::varchar(255).nullable(true));
+      t.add_column("product_name", types::varchar(255).nullable(true));
+      t.add_column("longest_session_on", types::date().nullable(true));
+    });
+
+    m.create_table_if_not_exists("timeline", |t| {
+      t.add_column("id", types::integer().primary(true));
+      t.add_column("date", types::date());
+      t.add_column("duration", types::integer());
+      t.inject_custom("app_id INTEGER NOT NULL REFERENCES APPS(id) ON DELETE CASCADE");
+    });
+
+    connection.batch_execute(&m.make::<Pg>())?;
+
+    Ok(())
+  }
+
   fn get_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
     let connection = &self.connection.lock().unwrap();
     let mut col = Vec::new();
