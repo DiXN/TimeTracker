@@ -3,8 +3,11 @@
 #[macro_use] extern crate rust_embed;
 
 use std::error::Error;
+use std::fs;
 
 use env_logger::{Builder, Env};
+
+use serde_derive::Deserialize;
 
 mod error;
 mod receive_types;
@@ -37,25 +40,73 @@ mod windows;
 #[folder = "resource/"]
 pub struct Asset;
 
+#[derive(Deserialize, Clone)]
+struct Config {
+  firebase: Option<Firebase>,
+  postgres: Option<Postgres>
+}
+
+#[derive(Deserialize, Clone)]
+struct Firebase {
+  url: String,
+  key: String,
+}
+
+impl AsRef<Firebase> for Firebase {
+  fn as_ref(&self) -> &Firebase {
+    self
+  }
+}
+
+#[derive(Deserialize, Clone)]
+struct Postgres {
+  user: String,
+  url: String,
+  password: Option<String>,
+  database: Option<String>,
+}
+
+impl AsRef<Postgres> for Postgres {
+  fn as_ref(&self) -> &Postgres {
+    self
+  }
+}
+
 #[cfg(feature = "firebase")]
-fn init_client() -> Result<(), Box<dyn Error>> {
-  use std::fs;
-  use serde_json::Value;
+fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
+  let url = config.firebase.as_ref().map(|f| &f.url);
+  let key = config.firebase.as_ref().map(|f| &f.key);
 
-  let config = fs::read_to_string("env.json")?;
-  let config : Value = serde_json::from_str(&config)?;
-  let firebase_client = FirebaseClient::new(config["url"].as_str().unwrap(), config["key"].as_str().unwrap());
-  time_tracking::init(firebase_client).unwrap();
+   let firebase_client = match (url, key) {
+    (Some(url), Some(key)) => FirebaseClient::new(url, key),
+    _ => panic!("Missing credentials.")
+  };
 
-  Ok(())
+  Ok(time_tracking::init(firebase_client)?)
 }
 
 #[cfg(feature = "psql")]
-fn init_client() -> Result<(), Box<dyn Error>> {
-  let pg_client = PgClient::new("postgres://postgres:root@10.0.0.5:5432/time_tracker");
-  time_tracking::init(pg_client).unwrap();
+fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
+  let url = config.postgres.as_ref().map(|p| &p.url);
+  let user = config.postgres.as_ref().map(|p| &p.user);
+  let password = config.postgres.as_ref().and_then(|p| p.password.as_ref());
+  let database = config.postgres.as_ref().and_then(|p| p.database.as_ref());
 
-  Ok(())
+  let credentials = match (user, url, password, database) {
+    (Some(user), Some(url), None, None) => (format!("postgres://{}@{}:5432", user, url), None),
+    (Some(user), Some(url), Some(password), None) => (format!("postgres://{}:{}@{}:5432", user, password, url), None),
+    (Some(user), Some(url), None, Some(database)) => (format!("postgres://{}@{}:5432", user, url), Some(database)),
+    (Some(user), Some(url), Some(password), Some(database)) => (format!("postgres://{}:{}@{}:5432", user, password, url), Some(database)),
+    _ => panic!("Missing credentials.")
+  };
+
+  let pg_client = if let Some(db) = credentials.1 {
+    PgClient::new(&credentials.0, &db)
+  } else {
+    PgClient::new(&credentials.0, "time_tracker")
+  };
+
+  Ok(time_tracking::init(pg_client)?)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -66,7 +117,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
   autostart()?;
   init_tray();
-  init_client()?;
+
+  let config = fs::read_to_string("env.toml")?;
+  let config : Config = toml::from_str(&config)?;
+
+  init_client(config)?;
 
   Ok(())
 }

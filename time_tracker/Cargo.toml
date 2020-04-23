@@ -21,6 +21,8 @@ inputbot = "0.4.0"
 rodio = { version = "0.10.0", default-features = false, features = ["vorbis"] }
 rust-embed = "5.2.0"
 barrel = { version = "0.6.5", features = ["pg"], optional = true }
+toml = "0.5.6"
+serde_derive = "1.0.106"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["tlhelp32", "handleapi", "winver", "winuser", "wincon", "shellapi"] }
