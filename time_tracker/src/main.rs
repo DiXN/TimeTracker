@@ -40,25 +40,30 @@ mod windows;
 #[folder = "resource/"]
 pub struct Asset;
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize)]
 struct Config {
+  #[cfg(feature = "firebase")]
   firebase: Option<Firebase>,
+  #[cfg(feature = "psql")]
   postgres: Option<Postgres>
 }
 
-#[derive(Deserialize, Clone)]
+#[cfg(feature = "firebase")]
+#[derive(Deserialize)]
 struct Firebase {
   url: String,
   key: String,
 }
 
+#[cfg(feature = "firebase")]
 impl AsRef<Firebase> for Firebase {
   fn as_ref(&self) -> &Firebase {
     self
   }
 }
 
-#[derive(Deserialize, Clone)]
+#[cfg(feature = "psql")]
+#[derive(Deserialize)]
 struct Postgres {
   user: String,
   url: String,
@@ -66,6 +71,7 @@ struct Postgres {
   database: Option<String>,
 }
 
+#[cfg(feature = "psql")]
 impl AsRef<Postgres> for Postgres {
   fn as_ref(&self) -> &Postgres {
     self
