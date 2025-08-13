@@ -2,27 +2,35 @@
 name = "time_tracker"
 version = "0.1.0"
 authors = ["Michael Kaltschmid <kaltschmidmichael@gmail.com>"]
-edition = "2018"
+edition = "2024"
 
 [dependencies]
 libc = "0.2.66"
 reqwest = { version = "0.9.24", optional = true }
 serde_json = "1.0.44"
 serde = "1.0.104"
-crossbeam-channel = "0.4.0"
-chrono = "0.4.10"
+crossbeam-channel = "0.5.0"
+chrono = "0.4.41"
 log = "0.4.8"
 env_logger = "0.7.1"
 jsonrpc-core = "14.0.5"
 jsonrpc-http-server = "14.0.5"
-lazy_static = "1.4.0"
+lazy_static = "1.5.0"
 postgres = { version = "0.15.2", features = ["with-chrono"], optional = true }
 inputbot = "0.4.0"
-rodio = { version = "0.10.0", default-features = false, features = ["vorbis"] }
-rust-embed = "5.2.0"
+rodio = { version = "0.21.1", default-features = false, features = ["playback"] }
 barrel = { version = "0.6.5", features = ["pg"], optional = true }
 toml = "0.5.6"
-serde_derive = "1.0.106"
+serde_derive = "1.0.219"
+rust-embed = "8.7.2"
+
+[target.'cfg(not(windows))'.dependencies]
+zbus = { version = "3.14", default-features = false, features = ["tokio"] }
+tokio = { version = "1.47.1", features = ["rt", "rt-multi-thread"] }
+procfs = "0.15"
+dirs = "5.0"
+sysinfo = "0.37.0"
+niri-ipc = "25.5.1"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["tlhelp32", "handleapi", "winver", "winuser", "wincon", "shellapi"] }
