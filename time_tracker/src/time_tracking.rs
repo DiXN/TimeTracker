@@ -15,6 +15,7 @@ use crate::native::{are_processes_running, ver_query_value};
 use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
 use crate::rpc::init_rpc;
+use crate::web_socket::init_web_socket;
 
 lazy_static! {
     static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = { Mutex::new(HashMap::new()) };
@@ -48,6 +49,9 @@ where
     let (spawn_tx, spawn_rx) = unbounded();
 
     init_rpc(client.clone());
+
+    init_web_socket(client.clone());
+
     client.init_event_loop(rx);
     check_processes(spawn_tx);
 

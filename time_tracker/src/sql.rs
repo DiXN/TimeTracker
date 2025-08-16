@@ -5,16 +5,16 @@ use std::{
 };
 
 use postgres::{
-    types::{FromSql, DATE, INT4, INT8, VARCHAR},
     Connection, TlsMode,
+    types::{DATE, FromSql, INT4, INT8, VARCHAR},
 };
 
-use chrono::prelude::*;
 use chrono::NaiveDate;
+use chrono::prelude::*;
 use crossbeam_channel::Receiver;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use barrel::{backend::Pg, types, Migration};
+use barrel::{Migration, backend::Pg, types};
 
 use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
@@ -50,12 +50,14 @@ impl PgClient {
                 }
             }
         } else {
-            panic!("Could not connect to Postgres server. Check connection string and if Postgres is running.")
+            panic!(
+                "Could not connect to Postgres server. Check connection string and if Postgres is running."
+            )
         }
     }
 
     pub fn get_single_value<T: FromSql>(&self, query: &str) -> Option<T> {
-        let connection = &self.connection.lock().unwrap();
+        let connection = self.connection.lock().ok()?;
 
         if let Ok(row) = connection.query(query, &[]) {
             if let Some(col) = row.iter().next() {
@@ -71,7 +73,10 @@ impl PgClient {
 
 impl Restable for PgClient {
     fn setup(&self) -> Result<(), Box<dyn Error>> {
-        let connection = &self.connection.lock().unwrap();
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
         let mut m = Migration::new();
 
@@ -98,18 +103,36 @@ impl Restable for PgClient {
     }
 
     fn get_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
-        let connection = &self.connection.lock().unwrap();
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
         let mut col = Vec::new();
 
         for row in &connection.query(item, &[])? {
             let mut map = std::collections::HashMap::new();
             for (idx, column) in row.columns().iter().enumerate() {
                 let value = match column.type_() {
-                    &DATE => row.get::<_, NaiveDate>(idx).to_string(),
-                    &VARCHAR => row.get::<_, String>(idx),
-                    &INT4 => row.get::<_, i32>(idx).to_string(),
-                    &INT8 => row.get::<_, i64>(idx).to_string(),
-                    _ => row.get::<_, i64>(idx).to_string(),
+                    &DATE => match row.get::<_, Option<NaiveDate>>(idx) {
+                        Some(date) => date.to_string(),
+                        None => String::new(),
+                    },
+                    &VARCHAR => match row.get::<_, Option<String>>(idx) {
+                        Some(s) => s,
+                        None => String::new(),
+                    },
+                    &INT4 => match row.get::<_, Option<i32>>(idx) {
+                        Some(i) => i.to_string(),
+                        None => String::new(),
+                    },
+                    &INT8 => match row.get::<_, Option<i64>>(idx) {
+                        Some(i) => i.to_string(),
+                        None => String::new(),
+                    },
+                    _ => match row.get::<_, Option<i64>>(idx) {
+                        Some(i) => i.to_string(),
+                        None => String::new(),
+                    },
                 };
 
                 map.insert(column.name().to_string(), value);
@@ -122,16 +145,20 @@ impl Restable for PgClient {
     }
 
     fn get_processes(&self) -> Result<Vec<String>, Box<dyn Error>> {
-        Ok(self
-            .get_data("SELECT name from apps")?
-            .as_array()
-            .unwrap()
+        let data = self.get_data("SELECT name from apps")?;
+        let array = data.as_array().ok_or("Expected array from query")?;
+
+        let processes = array
             .iter()
-            .map(|p| {
-                let obj = p.as_object().unwrap();
-                obj["name"].as_str().unwrap().to_owned()
+            .filter_map(|p| {
+                p.as_object()
+                    .and_then(|obj| obj.get("name"))
+                    .and_then(|name| name.as_str())
+                    .map(|s| s.to_owned())
             })
-            .collect::<Vec<String>>())
+            .collect();
+
+        Ok(processes)
     }
 
     fn put_data(&self, item: &str, product_name: &str) -> Result<Value, Box<dyn Error>> {
@@ -146,7 +173,11 @@ impl Restable for PgClient {
             None => 0,
         };
 
-        &self.connection.lock().unwrap().execute(
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
+        connection.execute(
             &format!(
                 "INSERT INTO apps VALUES ({}, 0, 0, 0, '{}', '{}', NULL);",
                 id, item, product_name
@@ -158,7 +189,10 @@ impl Restable for PgClient {
     }
 
     fn delete_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
-        let connection = &self.connection.lock().unwrap();
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
         connection.execute(
             &format!(
@@ -238,5 +272,37 @@ impl Restable for PgClient {
                 }
             }
         });
+    }
+
+    fn get_all_apps(&self) -> Result<Value, Box<dyn Error>> {
+        self.get_data("SELECT id, duration, launches, longest_session, name, product_name, longest_session_on FROM apps ORDER BY id")
+    }
+
+    fn get_timeline_data(
+        &self,
+        app_name: Option<&str>,
+        days: i64,
+    ) -> Result<Value, Box<dyn Error>> {
+        let query = if let Some(name) = app_name {
+            format!(
+                "SELECT t.id, t.date, t.duration, t.app_id
+                 FROM timeline t
+                 JOIN apps a ON t.app_id = a.id
+                 WHERE a.name = '{}'
+                 AND t.date >= CURRENT_DATE - INTERVAL '{} days'
+                 ORDER BY t.date DESC",
+                name, days
+            )
+        } else {
+            format!(
+                "SELECT t.id, t.date, t.duration, t.app_id
+                 FROM timeline t
+                 WHERE t.date >= CURRENT_DATE - INTERVAL '{} days'
+                 ORDER BY t.date DESC",
+                days
+            )
+        };
+
+        self.get_data(&query)
     }
 }

@@ -14,6 +14,7 @@ use serde_derive::Deserialize;
 
 mod error;
 mod receive_types;
+mod structs;
 mod time_tracking;
 
 #[cfg(feature = "firebase")]
@@ -41,6 +42,7 @@ mod windows;
 
 #[cfg(not(windows))]
 mod linux;
+mod web_socket;
 
 #[derive(RustEmbed)]
 #[folder = "resource/"]
