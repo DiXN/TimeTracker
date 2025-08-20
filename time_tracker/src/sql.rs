@@ -6,11 +6,11 @@ use std::{
 
 use postgres::{
     Connection, TlsMode,
-    types::{DATE, FromSql, INT4, INT8, VARCHAR},
+    types::{BOOL, DATE, FromSql, INT4, INT8, TIMESTAMP, VARCHAR},
 };
 
-use chrono::NaiveDate;
 use chrono::prelude::*;
+use chrono::{NaiveDate, NaiveDateTime};
 use crossbeam_channel::Receiver;
 use serde_json::{Value, json};
 
@@ -20,8 +20,15 @@ use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
 
 use crate::sql_queries::{
-    get_longest_session, get_number_from_apps, get_timeline_duration, insert_timeline,
-    update_apps_generic, update_longest_session, update_longest_session_on, update_timeline,
+    activate_checkpoint, create_checkpoint, create_timeline_checkpoint, deactivate_checkpoint,
+    delete_checkpoint, delete_timeline_checkpoint, get_active_checkpoints,
+    get_active_checkpoints_for_app, get_active_checkpoints_for_app_table,
+    get_all_active_checkpoints_table, get_all_checkpoints, get_all_timeline,
+    get_checkpoint_durations, get_checkpoint_durations_for_app, get_checkpoints_for_app,
+    get_longest_session, get_number_from_apps, get_timeline_checkpoint_associations,
+    get_timeline_checkpoints_for_timeline, get_timeline_duration, insert_timeline,
+    is_checkpoint_active, set_checkpoint_active, update_apps_generic, update_checkpoint_duration,
+    update_longest_session, update_longest_session_on, update_timeline,
 };
 
 #[derive(Clone)]
@@ -73,9 +80,7 @@ impl PgClient {
 
 impl Restable for PgClient {
     fn setup(&self) -> Result<(), Box<dyn Error>> {
-        let connection = self
-            .connection
-            .lock()
+        let connection = self.connection.lock()
             .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
         let mut m = Migration::new();
@@ -97,16 +102,92 @@ impl Restable for PgClient {
             t.inject_custom("app_id INTEGER NOT NULL REFERENCES APPS(id) ON DELETE CASCADE");
         });
 
+        m.create_table_if_not_exists("checkpoints", |t| {
+            t.add_column("id", types::integer().primary(true));
+            t.add_column("name", types::varchar(255).nullable(false));
+            t.add_column("description", types::text().nullable(true));
+            t.add_column(
+                "created_at",
+                types::custom("timestamp")
+                    .nullable(true)
+                    .default("CURRENT_TIMESTAMP"),
+            );
+            t.add_column(
+                "valid_from",
+                types::custom("timestamp")
+                    .nullable(false)
+                    .default("CURRENT_TIMESTAMP"),
+            );
+            t.add_column("color", types::varchar(7).nullable(true));
+            t.add_column("app_id", types::integer().nullable(false));
+            t.add_column(
+                "is_active",
+                types::boolean().nullable(true).default("false"),
+            );
+        });
+
+        m.create_table_if_not_exists("timeline_checkpoints", |t| {
+            t.add_column("id", types::integer().primary(true));
+            t.add_column("timeline_id", types::integer().nullable(false));
+            t.add_column("checkpoint_id", types::integer().nullable(false));
+            t.add_column(
+                "created_at",
+                types::custom("timestamp")
+                    .nullable(true)
+                    .default("CURRENT_TIMESTAMP"),
+            );
+            t.inject_custom("FOREIGN KEY (timeline_id) REFERENCES timeline(id) ON DELETE CASCADE");
+            t.inject_custom(
+                "FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id) ON DELETE CASCADE",
+            );
+        });
+
+        m.create_table_if_not_exists("checkpoint_durations", |t| {
+            t.add_column("id", types::integer().primary(true));
+            t.add_column("checkpoint_id", types::integer().nullable(false));
+            t.add_column("app_id", types::integer().nullable(false));
+            t.add_column("duration", types::integer().nullable(true).default("0"));
+            t.add_column(
+                "sessions_count",
+                types::integer().nullable(true).default("0"),
+            );
+            t.add_column(
+                "last_updated",
+                types::custom("timestamp")
+                    .nullable(true)
+                    .default("CURRENT_TIMESTAMP"),
+            );
+            t.inject_custom(
+                "FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id) ON DELETE CASCADE",
+            );
+            t.inject_custom("FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE");
+        });
+
+        m.create_table_if_not_exists("active_checkpoints", |t| {
+            t.add_column("id", types::integer().primary(true));
+            t.add_column("checkpoint_id", types::integer().nullable(false));
+            t.add_column(
+                "activated_at",
+                types::custom("timestamp")
+                    .nullable(true)
+                    .default("CURRENT_TIMESTAMP"),
+            );
+            t.add_column("app_id", types::integer().nullable(false));
+            t.inject_custom(
+                "FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id) ON DELETE CASCADE",
+            );
+            t.inject_custom("FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE");
+        });
+
         connection.batch_execute(&m.make::<Pg>())?;
 
         Ok(())
     }
 
     fn get_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
-        let connection = self
-            .connection
-            .lock()
+        let connection = self.connection.lock()
             .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
+
         let mut col = Vec::new();
 
         for row in &connection.query(item, &[])? {
@@ -115,6 +196,14 @@ impl Restable for PgClient {
                 let value = match column.type_() {
                     &DATE => match row.get::<_, Option<NaiveDate>>(idx) {
                         Some(date) => date.to_string(),
+                        None => String::new(),
+                    },
+                    &TIMESTAMP => match row.get::<_, Option<NaiveDateTime>>(idx) {
+                        Some(timestamp) => timestamp.to_string(),
+                        None => String::new(),
+                    },
+                    &BOOL => match row.get::<_, Option<bool>>(idx) {
+                        Some(b) => b.to_string(),
                         None => String::new(),
                     },
                     &VARCHAR => match row.get::<_, Option<String>>(idx) {
@@ -129,9 +218,11 @@ impl Restable for PgClient {
                         Some(i) => i.to_string(),
                         None => String::new(),
                     },
-                    _ => match row.get::<_, Option<i64>>(idx) {
-                        Some(i) => i.to_string(),
-                        None => String::new(),
+                    _ => {
+                        match row.get::<_, Option<String>>(idx) {
+                            Some(s) => s,
+                            None => String::new(),
+                        }
                     },
                 };
 
@@ -173,9 +264,7 @@ impl Restable for PgClient {
             None => 0,
         };
 
-        let connection = self
-            .connection
-            .lock()
+        let connection = self.connection.lock()
             .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
         connection.execute(
             &format!(
@@ -189,9 +278,7 @@ impl Restable for PgClient {
     }
 
     fn delete_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
-        let connection = self
-            .connection
-            .lock()
+        let connection = self.connection.lock()
             .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
         connection.execute(
@@ -304,5 +391,134 @@ impl Restable for PgClient {
         };
 
         self.get_data(&query)
+    }
+
+    fn get_all_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
+        get_all_checkpoints(self)
+    }
+
+    fn get_checkpoints_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
+        get_checkpoints_for_app(self, app_id)
+    }
+
+    fn create_checkpoint(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        app_id: i32,
+    ) -> Result<Value, Box<dyn Error>> {
+        create_checkpoint(self, name, description, app_id)?;
+        Ok(json!({"success": "Checkpoint created successfully"}))
+    }
+
+    fn set_checkpoint_active(
+        &self,
+        checkpoint_id: i32,
+        is_active: bool,
+    ) -> Result<Value, Box<dyn Error>> {
+        set_checkpoint_active(self, checkpoint_id, is_active)?;
+        Ok(json!({"success": "Checkpoint status updated successfully"}))
+    }
+
+    fn delete_checkpoint(&self, checkpoint_id: i32) -> Result<Value, Box<dyn Error>> {
+        delete_checkpoint(self, checkpoint_id)?;
+        Ok(json!({"success": "Checkpoint deleted successfully"}))
+    }
+
+    fn get_active_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
+        get_active_checkpoints(self)
+    }
+
+    fn get_active_checkpoints_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
+        get_active_checkpoints_for_app(self, app_id)
+    }
+
+    fn get_all_timeline(&self) -> Result<Value, Box<dyn Error>> {
+        get_all_timeline(self)
+    }
+
+    fn get_timeline_checkpoint_associations(&self) -> Result<Value, Box<dyn Error>> {
+        get_timeline_checkpoint_associations(self)
+    }
+
+    // Timeline checkpoint methods
+    fn create_timeline_checkpoint(
+        &self,
+        timeline_id: i32,
+        checkpoint_id: i32,
+    ) -> Result<Value, Box<dyn Error>> {
+        create_timeline_checkpoint(self, timeline_id, checkpoint_id)?;
+        Ok(json!({"success": "Timeline checkpoint association created"}))
+    }
+
+    fn delete_timeline_checkpoint(
+        &self,
+        timeline_id: i32,
+        checkpoint_id: i32,
+    ) -> Result<Value, Box<dyn Error>> {
+        delete_timeline_checkpoint(self, timeline_id, checkpoint_id)?;
+        Ok(json!({"success": "Timeline checkpoint association deleted"}))
+    }
+
+    fn get_timeline_checkpoints_for_timeline(
+        &self,
+        timeline_id: i32,
+    ) -> Result<Value, Box<dyn Error>> {
+        get_timeline_checkpoints_for_timeline(self, timeline_id)
+    }
+
+    // Checkpoint duration methods
+    fn get_checkpoint_durations(&self) -> Result<Value, Box<dyn Error>> {
+        get_checkpoint_durations(self)
+    }
+
+    fn get_checkpoint_durations_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
+        get_checkpoint_durations_for_app(self, app_id)
+    }
+
+    fn update_checkpoint_duration(
+        &self,
+        checkpoint_id: i32,
+        app_id: i32,
+        duration: i32,
+        sessions_count: i32,
+    ) -> Result<Value, Box<dyn Error>> {
+        update_checkpoint_duration(self, checkpoint_id, app_id, duration, sessions_count)?;
+        Ok(json!({"success": "Checkpoint duration updated"}))
+    }
+
+    // Active checkpoint table methods
+    fn get_all_active_checkpoints_table(&self) -> Result<Value, Box<dyn Error>> {
+        get_all_active_checkpoints_table(self)
+    }
+
+    fn get_active_checkpoints_for_app_table(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
+        get_active_checkpoints_for_app_table(self, app_id)
+    }
+
+    fn activate_checkpoint(
+        &self,
+        checkpoint_id: i32,
+        app_id: i32,
+    ) -> Result<Value, Box<dyn Error>> {
+        activate_checkpoint(self, checkpoint_id, app_id)?;
+        Ok(json!({"success": "Checkpoint activated"}))
+    }
+
+    fn deactivate_checkpoint(
+        &self,
+        checkpoint_id: i32,
+        app_id: i32,
+    ) -> Result<Value, Box<dyn Error>> {
+        deactivate_checkpoint(self, checkpoint_id, app_id)?;
+        Ok(json!({"success": "Checkpoint deactivated"}))
+    }
+
+    fn is_checkpoint_active(
+        &self,
+        checkpoint_id: i32,
+        app_id: i32,
+    ) -> Result<bool, Box<dyn Error>> {
+        is_checkpoint_active(self, checkpoint_id, app_id)
     }
 }

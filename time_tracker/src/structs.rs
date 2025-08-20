@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -35,6 +35,71 @@ pub struct Timeline {
     pub app_id: Option<i32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Checkpoint {
+    pub id: i32,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub created_at: Option<NaiveDateTime>,
+    pub valid_from: Option<NaiveDateTime>,
+    pub color: Option<String>,
+    pub app_id: i32,
+    pub is_active: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineCheckpoint {
+    pub id: i32,
+    pub timeline_id: i32,
+    pub checkpoint_id: i32,
+    pub created_at: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointDuration {
+    pub id: i32,
+    pub checkpoint_id: i32,
+    pub app_id: i32,
+    pub duration: Option<i32>,
+    pub sessions_count: Option<i32>,
+    pub last_updated: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveCheckpoint {
+    pub id: i32,
+    pub checkpoint_id: i32,
+    pub activated_at: Option<NaiveDateTime>,
+    pub app_id: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackingStatus {
+    pub is_tracking: bool,
+    pub is_paused: bool,
+    pub current_app: Option<String>,
+    pub current_session_duration: i32,
+    pub session_start_time: Option<String>,
+    pub active_checkpoint_ids: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppStatistics {
+    pub app: App,
+    pub total_duration: i32,
+    pub today_duration: i32,
+    pub week_duration: i32,
+    pub month_duration: i32,
+    pub average_session_length: f64,
+    pub recent_sessions: Vec<Timeline>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionCount {
+    pub app_id: i32,
+    pub session_count: i32,
+}
+
 impl Timeline {
     pub fn new(
         id: i32,
@@ -46,6 +111,82 @@ impl Timeline {
             id,
             date,
             duration,
+            app_id,
+        }
+    }
+}
+
+impl Checkpoint {
+    pub fn new(
+        id: i32,
+        name: Option<String>,
+        description: Option<String>,
+        created_at: Option<NaiveDateTime>,
+        valid_from: Option<NaiveDateTime>,
+        color: Option<String>,
+        app_id: i32,
+        is_active: Option<bool>,
+    ) -> Self {
+        Checkpoint {
+            id,
+            name,
+            description,
+            created_at,
+            valid_from,
+            color,
+            app_id,
+            is_active,
+        }
+    }
+}
+
+impl TimelineCheckpoint {
+    pub fn new(
+        id: i32,
+        timeline_id: i32,
+        checkpoint_id: i32,
+        created_at: Option<NaiveDateTime>,
+    ) -> Self {
+        TimelineCheckpoint {
+            id,
+            timeline_id,
+            checkpoint_id,
+            created_at,
+        }
+    }
+}
+
+impl CheckpointDuration {
+    pub fn new(
+        id: i32,
+        checkpoint_id: i32,
+        app_id: i32,
+        duration: Option<i32>,
+        sessions_count: Option<i32>,
+        last_updated: Option<NaiveDateTime>,
+    ) -> Self {
+        CheckpointDuration {
+            id,
+            checkpoint_id,
+            app_id,
+            duration,
+            sessions_count,
+            last_updated,
+        }
+    }
+}
+
+impl ActiveCheckpoint {
+    pub fn new(
+        id: i32,
+        checkpoint_id: i32,
+        activated_at: Option<NaiveDateTime>,
+        app_id: i32,
+    ) -> Self {
+        ActiveCheckpoint {
+            id,
+            checkpoint_id,
+            activated_at,
             app_id,
         }
     }
@@ -87,8 +228,20 @@ pub enum WebSocketMessage {
     TrackingStatusUpdate(String),
     #[serde(rename = "statistics_data")]
     StatisticsData(String),
-    #[serde(rename = "session_counts")]
+    #[serde(rename = "session_counts_legacy")]
     SessionCounts(String),
+    #[serde(rename = "checkpoints_list")]
+    CheckpointsList(String),
+    #[serde(rename = "checkpoint")]
+    Checkpoint(String),
+    #[serde(rename = "active_checkpoints")]
+    ActiveCheckpoints(String),
+    #[serde(rename = "tracking_status")]
+    TrackingStatus(String),
+    #[serde(rename = "session_counts")]
+    SessionCountsData(String),
+    #[serde(rename = "statistics")]
+    Statistics(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +263,16 @@ pub enum WebSocketCommand {
     GetStatistics(String),
     #[serde(rename = "get_session_counts")]
     GetSessionCounts(String),
+    #[serde(rename = "get_checkpoints")]
+    GetCheckpoints(String),
+    #[serde(rename = "create_checkpoint")]
+    CreateCheckpoint(String),
+    #[serde(rename = "set_active_checkpoint")]
+    SetActiveCheckpoint(String),
+    #[serde(rename = "delete_checkpoint")]
+    DeleteCheckpoint(String),
+    #[serde(rename = "get_active_checkpoints")]
+    GetActiveCheckpoints(String),
 }
 
 impl WebSocketMessage {
@@ -136,6 +299,36 @@ impl WebSocketMessage {
     pub fn app(app_json: &str) -> Self {
         let payload = format!(r#"{{"app": {}}}"#, app_json);
         WebSocketMessage::App(payload)
+    }
+
+    pub fn checkpoints_list(checkpoints_json: &str) -> Self {
+        let payload = format!(r#"{{"checkpoints": {}}}"#, checkpoints_json);
+        WebSocketMessage::CheckpointsList(payload)
+    }
+
+    pub fn checkpoint(checkpoint_json: &str) -> Self {
+        let payload = format!(r#"{{"checkpoint": {}}}"#, checkpoint_json);
+        WebSocketMessage::Checkpoint(payload)
+    }
+
+    pub fn active_checkpoints(checkpoints_json: &str) -> Self {
+        let payload = format!(r#"{{"active_checkpoints": {}}}"#, checkpoints_json);
+        WebSocketMessage::ActiveCheckpoints(payload)
+    }
+
+    pub fn tracking_status(status_json: &str) -> Self {
+        let payload = format!(r#"{{"status": {}}}"#, status_json);
+        WebSocketMessage::TrackingStatus(payload)
+    }
+
+    pub fn session_counts_data(counts_json: &str) -> Self {
+        let payload = format!(r#"{{"counts": {}}}"#, counts_json);
+        WebSocketMessage::SessionCountsData(payload)
+    }
+
+    pub fn statistics_data(statistics_json: &str) -> Self {
+        let payload = format!(r#"{{"statistics": {}}}"#, statistics_json);
+        WebSocketMessage::Statistics(payload)
     }
 
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -212,6 +405,137 @@ impl Timeline {
             id,
             date,
             duration,
+            app_id,
+        })
+    }
+}
+
+impl Checkpoint {
+    pub fn from_pg_row(row_data: &HashMap<String, String>) -> Option<Self> {
+        let id = row_data.get("id")?.parse().ok()?;
+
+        let parse_optional_string = |key: &str| -> Option<String> {
+            row_data
+                .get(key)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+        };
+
+        let parse_optional_datetime = |key: &str| -> Option<NaiveDateTime> {
+            row_data
+                .get(key)
+                .filter(|s| !s.is_empty())
+                .and_then(|datetime_str| {
+                    NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
+                        .or_else(|_| {
+                            NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")
+                        })
+                        .ok()
+                })
+        };
+
+        let app_id = row_data
+            .get("app_id")
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse().ok());
+
+        let is_active = row_data
+            .get("is_active")
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse().ok());
+
+        Some(Checkpoint {
+            id,
+            name: parse_optional_string("name"),
+            description: parse_optional_string("description"),
+            created_at: parse_optional_datetime("created_at"),
+            valid_from: parse_optional_datetime("valid_from"),
+            color: parse_optional_string("color"),
+            app_id: app_id.unwrap_or_default(),
+            is_active,
+        })
+    }
+}
+
+impl TimelineCheckpoint {
+    pub fn from_pg_row(row_data: &HashMap<String, String>) -> Option<Self> {
+        let id = row_data.get("id")?.parse().ok()?;
+        let timeline_id = row_data.get("timeline_id")?.parse().ok()?;
+        let checkpoint_id = row_data.get("checkpoint_id")?.parse().ok()?;
+
+        let created_at = row_data
+            .get("created_at")
+            .filter(|s| !s.is_empty())
+            .and_then(|datetime_str| {
+                NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
+                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S"))
+                    .ok()
+            });
+
+        Some(TimelineCheckpoint {
+            id,
+            timeline_id,
+            checkpoint_id,
+            created_at,
+        })
+    }
+}
+
+impl CheckpointDuration {
+    pub fn from_pg_row(row_data: &HashMap<String, String>) -> Option<Self> {
+        let id = row_data.get("id")?.parse().ok()?;
+        let checkpoint_id = row_data.get("checkpoint_id")?.parse().ok()?;
+        let app_id = row_data.get("app_id")?.parse().ok()?;
+
+        let duration = row_data
+            .get("duration")
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse().ok());
+
+        let sessions_count = row_data
+            .get("sessions_count")
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse().ok());
+
+        let last_updated = row_data
+            .get("last_updated")
+            .filter(|s| !s.is_empty())
+            .and_then(|datetime_str| {
+                NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
+                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S"))
+                    .ok()
+            });
+
+        Some(CheckpointDuration {
+            id,
+            checkpoint_id,
+            app_id,
+            duration,
+            sessions_count,
+            last_updated,
+        })
+    }
+}
+
+impl ActiveCheckpoint {
+    pub fn from_pg_row(row_data: &HashMap<String, String>) -> Option<Self> {
+        let id = row_data.get("id")?.parse().ok()?;
+        let checkpoint_id = row_data.get("checkpoint_id")?.parse().ok()?;
+        let app_id = row_data.get("app_id")?.parse().ok()?;
+
+        let activated_at = row_data
+            .get("activated_at")
+            .filter(|s| !s.is_empty())
+            .and_then(|datetime_str| {
+                NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
+                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S"))
+                    .ok()
+            });
+
+        Some(ActiveCheckpoint {
+            id,
+            checkpoint_id,
+            activated_at,
             app_id,
         })
     }

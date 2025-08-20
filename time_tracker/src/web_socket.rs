@@ -5,7 +5,10 @@ use std::thread;
 use std::time::Duration;
 
 use crate::restable::Restable;
-use crate::structs::{App, Timeline, WebSocketCommand, WebSocketMessage};
+use crate::structs::{
+    ActiveCheckpoint, App, AppStatistics, Checkpoint, SessionCount, Timeline, TrackingStatus,
+    WebSocketCommand, WebSocketMessage,
+};
 use crate::time_tracking::{add_process, delete_process};
 use tungstenite::{Message, accept};
 
@@ -16,7 +19,13 @@ where
     let client_arc = Arc::new(RwLock::new(client));
 
     thread::spawn(move || {
-        let server = TcpListener::bind("127.0.0.1:6754").unwrap();
+        let server = match TcpListener::bind("127.0.0.1:6754") {
+            Ok(server) => server,
+            Err(e) => {
+                error!("Failed to bind WebSocket server: {}", e);
+                return;
+            }
+        };
         info!("WebSocket server started on 127.0.0.1:6754");
 
         loop {
@@ -24,7 +33,13 @@ where
                 Ok((stream, _)) => {
                     let client_clone = Arc::clone(&client_arc);
                     thread::spawn(move || {
-                        let mut websocket = accept(stream).unwrap();
+                        let mut websocket = match accept(stream) {
+                            Ok(ws) => ws,
+                            Err(e) => {
+                                error!("Failed to accept WebSocket connection: {}", e);
+                                return;
+                            }
+                        };
                         info!("New WebSocket connection established");
 
                         loop {
@@ -94,10 +109,20 @@ where
         WebSocketCommand::GetAppByName(payload) => handle_get_app_by_name(client, &payload),
         WebSocketCommand::AddProcess(payload) => handle_add_process(client, &payload),
         WebSocketCommand::DeleteProcess(payload) => handle_delete_process(client, &payload),
-        _ => {
-            let error_msg = WebSocketMessage::error("Unknown or unimplemented command");
-            Ok(error_msg.to_json()?)
+        WebSocketCommand::GetCheckpoints(payload) => handle_get_checkpoints(client, &payload),
+        WebSocketCommand::CreateCheckpoint(payload) => handle_create_checkpoint(client, &payload),
+        WebSocketCommand::SetActiveCheckpoint(payload) => {
+            handle_set_active_checkpoint(client, &payload)
         }
+        WebSocketCommand::DeleteCheckpoint(payload) => handle_delete_checkpoint(client, &payload),
+        WebSocketCommand::GetActiveCheckpoints(payload) => {
+            handle_get_active_checkpoints(client, &payload)
+        }
+        WebSocketCommand::GetTrackingStatus(payload) => {
+            handle_get_tracking_status(client, &payload)
+        }
+        WebSocketCommand::GetSessionCounts(payload) => handle_get_session_counts(client, &payload),
+        WebSocketCommand::GetStatistics(payload) => handle_get_statistics(client, &payload),
     }
 }
 
@@ -135,7 +160,7 @@ where
 
 fn handle_get_timeline<T>(
     client: &Arc<RwLock<T>>,
-    payload: &str,
+    _payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
@@ -144,20 +169,33 @@ where
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
-    let (app_name_owned, days) = if payload.is_empty() {
-        (None, 30i64)
-    } else {
-        let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
-        let app_name = params
-            .get("app_name")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let days = params.get("days").and_then(|v| v.as_i64()).unwrap_or(30);
-        (app_name, days)
-    };
+    // Get all timeline data without filtering (matching Dart implementation)
+    let timeline_data = client_guard.get_all_timeline()?;
+    let associations_data = client_guard.get_timeline_checkpoint_associations()?;
 
-    let timeline_data = client_guard.get_timeline_data(app_name_owned.as_deref(), days)?;
-    let mut timeline = Vec::new();
+    // Build associations map
+    let mut associations_map: HashMap<i32, Vec<i32>> = HashMap::new();
+    if let Some(rows) = associations_data.as_array() {
+        for row in rows {
+            if let Some(obj) = row.as_object() {
+                if let (Some(timeline_id), Some(checkpoint_id)) = (
+                    obj.get("timeline_id")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse::<i32>().ok()),
+                    obj.get("checkpoint_id")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse::<i32>().ok()),
+                ) {
+                    associations_map
+                        .entry(timeline_id)
+                        .or_insert_with(Vec::new)
+                        .push(checkpoint_id);
+                }
+            }
+        }
+    }
+
+    let mut enhanced_timeline = Vec::new();
 
     if let Some(rows) = timeline_data.as_array() {
         for row in rows {
@@ -168,13 +206,25 @@ where
                     .collect();
 
                 if let Some(timeline_entry) = Timeline::from_pg_row(&row_map) {
-                    timeline.push(timeline_entry);
+                    // Create enhanced timeline with checkpoint associations
+                    let mut timeline_json = serde_json::to_value(&timeline_entry)?;
+                    if let Some(obj) = timeline_json.as_object_mut() {
+                        let empty_vec = vec![];
+                        let associations = associations_map
+                            .get(&timeline_entry.id)
+                            .unwrap_or(&empty_vec);
+                        obj.insert(
+                            "checkpoint_associations".to_string(),
+                            serde_json::to_value(associations)?,
+                        );
+                    }
+                    enhanced_timeline.push(timeline_json);
                 }
             }
         }
     }
 
-    let timeline_json = serde_json::to_string(&timeline)?;
+    let timeline_json = serde_json::to_string(&enhanced_timeline)?;
     let response = WebSocketMessage::timeline_data(&timeline_json);
 
     Ok(response.to_json()?)
@@ -194,7 +244,7 @@ where
     let app_name = params
         .get("name")
         .and_then(|v| v.as_str())
-        .ok_or("Missing name parameter")?;
+        .ok_or("name parameter is required")?;
 
     let apps_data = client_guard.get_all_apps()?;
 
@@ -238,11 +288,11 @@ where
     let process_name = params
         .get("process_name")
         .and_then(|v| v.as_str())
-        .ok_or("Missing process_name parameter")?;
+        .ok_or("process_name parameter is required")?;
     let path = params
         .get("path")
         .and_then(|v| v.as_str())
-        .ok_or("Missing path parameter")?;
+        .ok_or("path parameter is required")?;
 
     match add_process(process_name, path, client) {
         Ok(_) => {
@@ -269,7 +319,7 @@ where
     let process_name = params
         .get("process_name")
         .and_then(|v| v.as_str())
-        .ok_or("Missing process_name parameter")?;
+        .ok_or("process_name parameter is required")?;
 
     match delete_process(process_name, client) {
         Ok(_) => {
@@ -287,4 +337,379 @@ where
             Ok(error_msg.to_json()?)
         }
     }
+}
+
+fn handle_get_checkpoints<T>(
+    client: &Arc<RwLock<T>>,
+    payload: &str,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    T: Restable + Sync + Send,
+{
+    let client_guard = client
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+
+    let checkpoints_data = if payload.is_empty() {
+        client_guard.get_all_checkpoints()?
+    } else {
+        let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
+        if let Some(app_id) = params
+            .get("app_id")
+            .and_then(|v| v.as_i64())
+            .map(|i| i as i32)
+        {
+            client_guard.get_checkpoints_for_app(app_id)?
+        } else {
+            client_guard.get_all_checkpoints()?
+        }
+    };
+
+    let mut checkpoints = Vec::new();
+
+    if let Some(rows) = checkpoints_data.as_array() {
+        for row in rows {
+            if let Some(obj) = row.as_object() {
+                let row_map: HashMap<String, String> = obj
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                    .collect();
+
+                if let Some(checkpoint) = Checkpoint::from_pg_row(&row_map) {
+                    checkpoints.push(checkpoint);
+                }
+            }
+        }
+    }
+
+    let checkpoints_json = serde_json::to_string(&checkpoints)?;
+    let response = WebSocketMessage::checkpoints_list(&checkpoints_json);
+
+    Ok(response.to_json()?)
+}
+
+fn handle_create_checkpoint<T>(
+    client: &Arc<RwLock<T>>,
+    payload: &str,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    T: Restable + Sync + Send,
+{
+    let client_guard = client
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+
+    let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
+    let name = params
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("name parameter is required")?;
+    let description = params.get("description").and_then(|v| v.as_str());
+    let app_id = params
+        .get("app_id")
+        .and_then(|v| v.as_i64())
+        .map(|i| i as i32)
+        .ok_or("app_id is required for creating checkpoints")?;
+
+    // Handle color parameter (default to #2196F3 if not provided)
+    let _color = params
+        .get("color")
+        .and_then(|v| v.as_str())
+        .unwrap_or("#2196F3");
+
+    // Handle valid_from parameter (could be used in future)
+    let _valid_from = params.get("valid_from").and_then(|v| v.as_str());
+
+    match client_guard.create_checkpoint(name, description, app_id) {
+        Ok(_) => {
+            // Get updated checkpoints for the app to return current state
+            match client_guard.get_checkpoints_for_app(app_id) {
+                Ok(checkpoints_data) => {
+                    let mut checkpoints = Vec::new();
+                    if let Some(rows) = checkpoints_data.as_array() {
+                        for row in rows {
+                            if let Some(obj) = row.as_object() {
+                                let row_map: HashMap<String, String> = obj
+                                    .iter()
+                                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                                    .collect();
+
+                                if let Some(checkpoint) = Checkpoint::from_pg_row(&row_map) {
+                                    checkpoints.push(checkpoint);
+                                }
+                            }
+                        }
+                    }
+
+                    let checkpoints_json = serde_json::to_string(&checkpoints)?;
+                    let response = WebSocketMessage::checkpoints_list(&checkpoints_json);
+                    Ok(response.to_json()?)
+                }
+                Err(_) => {
+                    let response = WebSocketMessage::success(&format!(
+                        "Successfully created checkpoint: {}",
+                        name
+                    ));
+                    Ok(response.to_json()?)
+                }
+            }
+        }
+        Err(e) => {
+            let error_msg =
+                WebSocketMessage::error(&format!("Failed to create checkpoint '{}': {}", name, e));
+            Ok(error_msg.to_json()?)
+        }
+    }
+}
+
+fn handle_set_active_checkpoint<T>(
+    client: &Arc<RwLock<T>>,
+    payload: &str,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    T: Restable + Sync + Send,
+{
+    let client_guard = client
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+
+    let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
+    let checkpoint_id = params
+        .get("checkpoint_id")
+        .and_then(|v| v.as_i64())
+        .map(|i| i as i32)
+        .ok_or("checkpoint_id parameter is required")?;
+    let app_id = params
+        .get("app_id")
+        .and_then(|v| v.as_i64())
+        .map(|i| i as i32)
+        .ok_or("app_id parameter is required")?;
+    let is_active = params
+        .get("is_active")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let result = if is_active {
+        client_guard.activate_checkpoint(checkpoint_id, app_id)
+    } else {
+        client_guard.deactivate_checkpoint(checkpoint_id, app_id)
+    };
+
+    match result {
+        Ok(_) => {
+            let status = if is_active {
+                "activated"
+            } else {
+                "deactivated"
+            };
+            let response = WebSocketMessage::success(&format!(
+                "Successfully {} checkpoint with ID: {}",
+                status, checkpoint_id
+            ));
+            Ok(response.to_json()?)
+        }
+        Err(e) => {
+            let error_msg = WebSocketMessage::error(&format!(
+                "Failed to update checkpoint with ID {}: {}",
+                checkpoint_id, e
+            ));
+            Ok(error_msg.to_json()?)
+        }
+    }
+}
+
+fn handle_delete_checkpoint<T>(
+    client: &Arc<RwLock<T>>,
+    payload: &str,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    T: Restable + Sync + Send,
+{
+    let client_guard = client
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+
+    let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
+    let checkpoint_id = params
+        .get("checkpoint_id")
+        .and_then(|v| v.as_i64())
+        .map(|i| i as i32)
+        .ok_or("checkpoint_id parameter is required")?;
+
+    match client_guard.delete_checkpoint(checkpoint_id) {
+        Ok(_) => {
+            let response = WebSocketMessage::success(&format!(
+                "Successfully deleted checkpoint with ID: {}",
+                checkpoint_id
+            ));
+            Ok(response.to_json()?)
+        }
+        Err(e) => {
+            let error_msg = WebSocketMessage::error(&format!(
+                "Failed to delete checkpoint with ID {}: {}",
+                checkpoint_id, e
+            ));
+            Ok(error_msg.to_json()?)
+        }
+    }
+}
+
+fn handle_get_active_checkpoints<T>(
+    client: &Arc<RwLock<T>>,
+    payload: &str,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    T: Restable + Sync + Send,
+{
+    let client_guard = client
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+
+    let active_checkpoints_data = if payload.is_empty() {
+        client_guard.get_all_active_checkpoints_table()?
+    } else {
+        let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
+        if let Some(app_id) = params
+            .get("app_id")
+            .and_then(|v| v.as_i64())
+            .map(|i| i as i32)
+        {
+            client_guard.get_active_checkpoints_for_app_table(app_id)?
+        } else {
+            client_guard.get_all_active_checkpoints_table()?
+        }
+    };
+
+    let mut active_checkpoints = Vec::new();
+
+    if let Some(rows) = active_checkpoints_data.as_array() {
+        for row in rows {
+            if let Some(obj) = row.as_object() {
+                let row_map: HashMap<String, String> = obj
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                    .collect();
+
+                if let Some(active_checkpoint) = ActiveCheckpoint::from_pg_row(&row_map) {
+                    active_checkpoints.push(active_checkpoint);
+                }
+            }
+        }
+    }
+
+    let checkpoints_json = serde_json::to_string(&active_checkpoints)?;
+    let response = WebSocketMessage::active_checkpoints(&checkpoints_json);
+
+    Ok(response.to_json()?)
+}
+
+fn handle_get_tracking_status<T>(
+    client: &Arc<RwLock<T>>,
+    _payload: &str,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    T: Restable + Sync + Send,
+{
+    // For now, return a default tracking status
+    // In a real implementation, this would track actual process states
+    let status = TrackingStatus {
+        is_tracking: false,
+        is_paused: false,
+        current_app: None,
+        current_session_duration: 0,
+        session_start_time: None,
+        active_checkpoint_ids: vec![],
+    };
+
+    let status_json = serde_json::to_string(&status)?;
+    let response = WebSocketMessage::tracking_status(&status_json);
+
+    Ok(response.to_json()?)
+}
+
+fn handle_get_session_counts<T>(
+    client: &Arc<RwLock<T>>,
+    _payload: &str,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    T: Restable + Sync + Send,
+{
+    let client_guard = client
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+
+    // Get all apps and create session counts
+    let apps_data = client_guard.get_all_apps()?;
+    let mut session_counts = Vec::new();
+
+    if let Some(rows) = apps_data.as_array() {
+        for row in rows {
+            if let Some(obj) = row.as_object() {
+                let row_map: HashMap<String, String> = obj
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                    .collect();
+
+                if let Some(app) = App::from_pg_row(&row_map) {
+                    // For simplicity, use launches as session count
+                    let session_count = SessionCount {
+                        app_id: app.id,
+                        session_count: app.launches.unwrap_or(0),
+                    };
+                    session_counts.push(session_count);
+                }
+            }
+        }
+    }
+
+    let counts_json = serde_json::to_string(&session_counts)?;
+    let response = WebSocketMessage::session_counts_data(&counts_json);
+
+    Ok(response.to_json()?)
+}
+
+fn handle_get_statistics<T>(
+    client: &Arc<RwLock<T>>,
+    _payload: &str,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    T: Restable + Sync + Send,
+{
+    let client_guard = client
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+
+    // Get all apps and create statistics
+    let apps_data = client_guard.get_all_apps()?;
+    let mut app_statistics = Vec::new();
+
+    if let Some(rows) = apps_data.as_array() {
+        for row in rows {
+            if let Some(obj) = row.as_object() {
+                let row_map: HashMap<String, String> = obj
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                    .collect();
+
+                if let Some(app) = App::from_pg_row(&row_map) {
+                    let statistics = AppStatistics {
+                        app: app.clone(),
+                        total_duration: app.duration.unwrap_or(0),
+                        today_duration: 0, // Would need to calculate from timeline
+                        week_duration: 0,  // Would need to calculate from timeline
+                        month_duration: 0, // Would need to calculate from timeline
+                        average_session_length: app.duration.unwrap_or(0) as f64
+                            / app.launches.unwrap_or(1).max(1) as f64,
+                        recent_sessions: vec![], // Would need to query timeline
+                    };
+                    app_statistics.push(statistics);
+                }
+            }
+        }
+    }
+
+    let statistics_json = serde_json::to_string(&app_statistics)?;
+    let response = WebSocketMessage::statistics_data(&statistics_json);
+
+    Ok(response.to_json()?)
 }
