@@ -11,6 +11,19 @@ use crate::structs::{
 };
 use crate::time_tracking::{add_process, delete_process};
 use tungstenite::{Message, accept};
+use serde_json::Value as JsonValue;
+
+// Helper function to convert JSON values to strings
+fn json_value_to_string(value: &JsonValue) -> String {
+    match value {
+        JsonValue::String(s) => s.clone(),
+        JsonValue::Number(n) => n.to_string(),
+        JsonValue::Bool(b) => b.to_string(),
+        JsonValue::Null => String::new(),
+        // For arrays and objects, serialize them to JSON strings
+        _ => serde_json::to_string(value).unwrap_or_default(),
+    }
+}
 
 pub fn init_web_socket<T>(client: T)
 where
@@ -142,7 +155,7 @@ where
             if let Some(obj) = row.as_object() {
                 let row_map: HashMap<String, String> = obj
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                    .map(|(k, v)| (k.clone(), json_value_to_string(v)))
                     .collect();
 
                 if let Some(app) = App::from_pg_row(&row_map) {
@@ -202,7 +215,7 @@ where
             if let Some(obj) = row.as_object() {
                 let row_map: HashMap<String, String> = obj
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                    .map(|(k, v)| (k.clone(), json_value_to_string(v)))
                     .collect();
 
                 if let Some(timeline_entry) = Timeline::from_pg_row(&row_map) {
@@ -253,7 +266,7 @@ where
             if let Some(obj) = row.as_object() {
                 let row_map: HashMap<String, String> = obj
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                    .map(|(k, v)| (k.clone(), json_value_to_string(v)))
                     .collect();
 
                 if let Some(app) = App::from_pg_row(&row_map) {
@@ -372,7 +385,7 @@ where
             if let Some(obj) = row.as_object() {
                 let row_map: HashMap<String, String> = obj
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                    .map(|(k, v)| (k.clone(), json_value_to_string(v)))
                     .collect();
 
                 if let Some(checkpoint) = Checkpoint::from_pg_row(&row_map) {
@@ -431,7 +444,7 @@ where
                             if let Some(obj) = row.as_object() {
                                 let row_map: HashMap<String, String> = obj
                                     .iter()
-                                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                                    .map(|(k, v)| (k.clone(), json_value_to_string(v)))
                                     .collect();
 
                                 if let Some(checkpoint) = Checkpoint::from_pg_row(&row_map) {
@@ -587,7 +600,7 @@ where
             if let Some(obj) = row.as_object() {
                 let row_map: HashMap<String, String> = obj
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                    .map(|(k, v)| (k.clone(), json_value_to_string(v)))
                     .collect();
 
                 if let Some(active_checkpoint) = ActiveCheckpoint::from_pg_row(&row_map) {
@@ -679,7 +692,7 @@ where
             if let Some(obj) = row.as_object() {
                 let row_map: HashMap<String, String> = obj
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
+                    .map(|(k, v)| (k.clone(), json_value_to_string(v)))
                     .collect();
 
                 if let Some(app) = App::from_pg_row(&row_map) {
