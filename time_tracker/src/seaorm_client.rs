@@ -1,7 +1,7 @@
-use std::{error::Error, sync::Arc};
+use std::{error::Error, sync::Arc, time::Duration};
 
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DbErr, EntityTrait,
     QueryFilter, QueryOrder, QuerySelect, RelationTrait,
 };
 use serde_json::{Value, json};
@@ -23,7 +23,12 @@ pub struct SeaORMClient {
 
 impl SeaORMClient {
     pub async fn new(url: &str) -> Result<Self, DbErr> {
-        let db = Database::connect(url).await?;
+        let mut opt = ConnectOptions::new(url.to_owned());
+        opt.max_connections(100)
+            .min_connections(5)
+            .connect_timeout(Duration::from_secs(8))
+            .idle_timeout(Duration::from_secs(8));
+        let db = Database::connect(opt).await?;
         Ok(Self {
             connection: Arc::new(db),
         })
@@ -31,137 +36,117 @@ impl SeaORMClient {
 }
 
 impl Restable for SeaORMClient {
-    fn setup(&self) -> Result<(), Box<dyn Error>> {
+    async fn setup(&self) -> Result<(), Box<dyn Error>> {
         // Run database migrations
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            use sea_orm_migration::MigratorTrait;
-            crate::migration::Migrator::up(&*self.connection, None).await?;
-            Ok::<(), Box<dyn Error>>(())
-        })?;
+        use sea_orm_migration::MigratorTrait;
+        crate::migration::Migrator::up(&*self.connection, None).await?;
         Ok(())
     }
 
-    fn get_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
-        let rt = tokio::runtime::Runtime::new()?;
+    async fn get_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
+        // Parse the item path to determine what data to fetch
+        let parts: Vec<&str> = item.split('/').filter(|s| !s.is_empty()).collect();
 
-        rt.block_on(async {
-            // Parse the item path to determine what data to fetch
-            let parts: Vec<&str> = item.split('/').filter(|s| !s.is_empty()).collect();
+        match parts.as_slice() {
+            ["apps"] => {
+                // Get all apps
+                let apps: Vec<apps::Model> =
+                    apps::Entity::find().all(&*self.connection).await?;
+                let json_values: Vec<Value> = apps
+                    .into_iter()
+                    .map(|app| crate::seaorm_queries::model_to_json_with_context(app, "app"))
+                    .collect();
+                Ok(Value::Object(serde_json::Map::from_iter([(
+                    "apps".to_string(),
+                    Value::Array(json_values),
+                )])))
+            }
+            ["apps", app_name] => {
+                // Get specific app
+                let app = apps::Entity::find()
+                    .filter(apps::Column::Name.eq(*app_name))
+                    .one(&*self.connection)
+                    .await?;
 
-            match parts.as_slice() {
-                ["apps"] => {
-                    // Get all apps
-                    let apps: Vec<apps::Model> =
-                        apps::Entity::find().all(&*self.connection).await?;
-                    let json_values: Vec<Value> = apps
-                        .into_iter()
-                        .map(|app| crate::seaorm_queries::model_to_json_with_context(app, "app"))
-                        .collect();
-                    Ok(Value::Object(serde_json::Map::from_iter([(
-                        "apps".to_string(),
-                        Value::Array(json_values),
-                    )])))
-                }
-                ["apps", app_name] => {
-                    // Get specific app
-                    let app = apps::Entity::find()
-                        .filter(apps::Column::Name.eq(*app_name))
-                        .one(&*self.connection)
-                        .await?;
-
-                    match app {
-                        Some(app_model) => Ok(serde_json::to_value(app_model)?),
-                        None => Ok(Value::Null),
-                    }
-                }
-                ["apps", app_name, field] => {
-                    // Get specific field of an app
-                    let app = apps::Entity::find()
-                        .filter(apps::Column::Name.eq(*app_name))
-                        .one(&*self.connection)
-                        .await?;
-
-                    match app {
-                        Some(app_model) => {
-                            let value = match *field {
-                                "duration" => serde_json::to_value(app_model.duration)?,
-                                "launches" => serde_json::to_value(app_model.launches)?,
-                                "longestSession" => {
-                                    serde_json::to_value(app_model.longest_session)?
-                                }
-                                "name" => serde_json::to_value(app_model.name)?,
-                                "productName" => serde_json::to_value(app_model.product_name)?,
-                                _ => Value::Null,
-                            };
-                            Ok(value)
-                        }
-                        None => Ok(Value::Null),
-                    }
-                }
-                _ => {
-                    // For unsupported paths, return empty object
-                    Ok(json!({}))
+                match app {
+                    Some(app_model) => Ok(serde_json::to_value(app_model)?),
+                    None => Ok(Value::Null),
                 }
             }
-        })
+            ["apps", app_name, field] => {
+                // Get specific field of an app
+                let app = apps::Entity::find()
+                    .filter(apps::Column::Name.eq(*app_name))
+                    .one(&*self.connection)
+                    .await?;
+
+                match app {
+                    Some(app_model) => {
+                        let value = match *field {
+                            "duration" => serde_json::to_value(app_model.duration)?,
+                            "launches" => serde_json::to_value(app_model.launches)?,
+                            "longestSession" => {
+                                serde_json::to_value(app_model.longest_session)?
+                            }
+                            "name" => serde_json::to_value(app_model.name)?,
+                            "productName" => serde_json::to_value(app_model.product_name)?,
+                            _ => Value::Null,
+                        };
+                        Ok(value)
+                    }
+                    None => Ok(Value::Null),
+                }
+            }
+            _ => {
+                // For unsupported paths, return empty object
+                Ok(json!({}))
+            }
+        }
     }
 
-    fn get_processes(&self) -> Result<Vec<String>, Box<dyn Error>> {
-        let rt = tokio::runtime::Runtime::new()?;
+    async fn get_processes(&self) -> Result<Vec<String>, Box<dyn Error>> {
+        let apps: Vec<apps::Model> = apps::Entity::find().all(&*self.connection).await?;
 
-        rt.block_on(async {
-            let apps: Vec<apps::Model> = apps::Entity::find().all(&*self.connection).await?;
+        let process_names: Vec<String> = apps.into_iter().filter_map(|app| app.name).collect();
 
-            let process_names: Vec<String> = apps.into_iter().filter_map(|app| app.name).collect();
-
-            Ok(process_names)
-        })
+        Ok(process_names)
     }
 
-    fn put_data(&self, item: &str, product_name: &str) -> Result<Value, Box<dyn Error>> {
-        let rt = tokio::runtime::Runtime::new()?;
+    async fn put_data(&self, item: &str, product_name: &str) -> Result<Value, Box<dyn Error>> {
+        // Get the next ID
+        let max_id: Option<i32> = apps::Entity::find()
+            .select_only()
+            .column_as(apps::Column::Id.max(), "max_id")
+            .into_tuple()
+            .one(&*self.connection)
+            .await?;
 
-        rt.block_on(async {
-            // Get the next ID
-            let max_id: Option<i32> = apps::Entity::find()
-                .select_only()
-                .column_as(apps::Column::Id.max(), "max_id")
-                .into_tuple()
-                .one(&*self.connection)
-                .await?;
+        let next_id = max_id.map(|id| id + 1).unwrap_or(1);
 
-            let next_id = max_id.map(|id| id + 1).unwrap_or(1);
+        // Create the active model
+        let app = apps::ActiveModel {
+            id: ActiveValue::Set(next_id),
+            duration: ActiveValue::Set(Some(0)),
+            launches: ActiveValue::Set(Some(0)),
+            longest_session: ActiveValue::Set(Some(0)),
+            name: ActiveValue::Set(Some(item.to_owned())),
+            product_name: ActiveValue::Set(Some(product_name.to_owned())),
+            longest_session_on: ActiveValue::Set(None),
+        };
 
-            // Create the active model
-            let app = apps::ActiveModel {
-                id: ActiveValue::Set(next_id),
-                duration: ActiveValue::Set(Some(0)),
-                launches: ActiveValue::Set(Some(0)),
-                longest_session: ActiveValue::Set(Some(0)),
-                name: ActiveValue::Set(Some(item.to_owned())),
-                product_name: ActiveValue::Set(Some(product_name.to_owned())),
-                longest_session_on: ActiveValue::Set(None),
-            };
+        // Insert into database
+        apps::Entity::insert(app).exec(&*self.connection).await?;
 
-            // Insert into database
-            apps::Entity::insert(app).exec(&*self.connection).await?;
-
-            Ok(json!({"insert": item}))
-        })
+        Ok(json!({"insert": item}))
     }
 
-    fn delete_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
-        let rt = tokio::runtime::Runtime::new()?;
+    async fn delete_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
+        apps::Entity::delete_many()
+            .filter(apps::Column::Name.eq(item))
+            .exec(&*self.connection)
+            .await?;
 
-        rt.block_on(async {
-            apps::Entity::delete_many()
-                .filter(apps::Column::Name.eq(item))
-                .exec(&*self.connection)
-                .await?;
-
-            Ok(json!({"delete": item}))
-        })
+        Ok(json!({"delete": item}))
     }
 
     fn init_event_loop(self, rx: Receiver<(String, ReceiveTypes)>) {
@@ -323,202 +308,194 @@ impl Restable for SeaORMClient {
         });
     }
 
-    fn get_all_apps(&self) -> Result<Value, Box<dyn Error>> {
-        let rt = tokio::runtime::Runtime::new()?;
+    async fn get_all_apps(&self) -> Result<Value, Box<dyn Error>> {
+        let apps: Vec<apps::Model> = apps::Entity::find()
+            .order_by(apps::Column::Id, sea_orm::Order::Asc)
+            .all(&*self.connection)
+            .await?;
 
-        rt.block_on(async {
-            let apps: Vec<apps::Model> = apps::Entity::find()
-                .order_by(apps::Column::Id, sea_orm::Order::Asc)
-                .all(&*self.connection)
-                .await?;
+        let json_values: Vec<Value> = apps
+            .into_iter()
+            .map(|app| crate::seaorm_queries::model_to_json_with_context(app, "app"))
+            .collect();
 
-            let json_values: Vec<Value> = apps
-                .into_iter()
-                .map(|app| crate::seaorm_queries::model_to_json_with_context(app, "app"))
-                .collect();
-
-            Ok(Value::Array(json_values))
-        })
+        Ok(Value::Array(json_values))
     }
 
-    fn get_timeline_data(
+    async fn get_timeline_data(
         &self,
         app_name: Option<&str>,
         days: i64,
     ) -> Result<Value, Box<dyn Error>> {
-        let rt = tokio::runtime::Runtime::new()?;
+        if let Some(name) = app_name {
+            // Get timeline data for a specific app
+            let timeline_entries: Vec<timeline::Model> =
+                timeline::Entity::find()
+                    .join(sea_orm::JoinType::InnerJoin, timeline::Relation::Apps.def())
+                    .filter(apps::Column::Name.eq(name).and(timeline::Column::Date.gte(
+                        chrono::Utc::now().naive_utc().date() - chrono::Duration::days(days),
+                    )))
+                    .order_by_desc(timeline::Column::Date)
+                    .all(&*self.connection)
+                    .await?;
 
-        rt.block_on(async {
-            if let Some(name) = app_name {
-                // Get timeline data for a specific app
-                let timeline_entries: Vec<timeline::Model> =
-                    timeline::Entity::find()
-                        .join(sea_orm::JoinType::InnerJoin, timeline::Relation::Apps.def())
-                        .filter(apps::Column::Name.eq(name).and(timeline::Column::Date.gte(
-                            chrono::Utc::now().naive_utc().date() - chrono::Duration::days(days),
-                        )))
-                        .order_by_desc(timeline::Column::Date)
-                        .all(&*self.connection)
-                        .await?;
+            let json_values: Vec<Value> = timeline_entries
+                .into_iter()
+                .map(|entry| match serde_json::to_value(entry) {
+                    Ok(val) => val,
+                    Err(e) => {
+                        eprintln!("Failed to serialize timeline entry: {}", e);
+                        Value::Null
+                    }
+                })
+                .collect();
 
-                let json_values: Vec<Value> = timeline_entries
-                    .into_iter()
-                    .map(|entry| match serde_json::to_value(entry) {
-                        Ok(val) => val,
-                        Err(e) => {
-                            eprintln!("Failed to serialize timeline entry: {}", e);
-                            Value::Null
-                        }
-                    })
-                    .collect();
+            Ok(Value::Array(json_values))
+        } else {
+            // Get timeline data for all apps
+            let timeline_entries: Vec<timeline::Model> =
+                timeline::Entity::find()
+                    .filter(timeline::Column::Date.gte(
+                        chrono::Utc::now().naive_utc().date() - chrono::Duration::days(days),
+                    ))
+                    .order_by_desc(timeline::Column::Date)
+                    .all(&*self.connection)
+                    .await?;
 
-                Ok(Value::Array(json_values))
-            } else {
-                // Get timeline data for all apps
-                let timeline_entries: Vec<timeline::Model> =
-                    timeline::Entity::find()
-                        .filter(timeline::Column::Date.gte(
-                            chrono::Utc::now().naive_utc().date() - chrono::Duration::days(days),
-                        ))
-                        .order_by_desc(timeline::Column::Date)
-                        .all(&*self.connection)
-                        .await?;
+            let json_values: Vec<Value> = timeline_entries
+                .into_iter()
+                .map(|entry| {
+                    crate::seaorm_queries::model_to_json_with_context(entry, "timeline entry")
+                })
+                .collect();
 
-                let json_values: Vec<Value> = timeline_entries
-                    .into_iter()
-                    .map(|entry| {
-                        crate::seaorm_queries::model_to_json_with_context(entry, "timeline entry")
-                    })
-                    .collect();
-
-                Ok(Value::Array(json_values))
-            }
-        })
+            Ok(Value::Array(json_values))
+        }
     }
 
-    fn get_session_count_for_app(&self, app_id: i32) -> Result<i32, Box<dyn Error>> {
-        get_session_count_for_app(self, app_id)
+    async fn get_session_count_for_app(&self, app_id: i32) -> Result<i32, Box<dyn Error>> {
+        get_session_count_for_app(self, app_id).await
     }
 
-    fn get_all_app_ids(&self) -> Result<Vec<i32>, Box<dyn Error>> {
-        get_all_app_ids(self)
+    async fn get_all_app_ids(&self) -> Result<Vec<i32>, Box<dyn Error>> {
+        get_all_app_ids(self).await
     }
 
-    fn get_all_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
-        get_all_checkpoints(self)
+    async fn get_all_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
+        get_all_checkpoints(self).await
     }
 
-    fn get_checkpoints_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
-        get_checkpoints_for_app(self, app_id)
+    async fn get_checkpoints_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
+        get_checkpoints_for_app(self, app_id).await
     }
 
-    fn create_checkpoint(
+    async fn create_checkpoint(
         &self,
         name: &str,
         description: Option<&str>,
         app_id: i32,
     ) -> Result<Value, Box<dyn Error>> {
-        create_checkpoint(self, name, description, app_id)
+        create_checkpoint(self, name, description, app_id).await
     }
 
-    fn set_checkpoint_active(
+    async fn set_checkpoint_active(
         &self,
         checkpoint_id: i32,
         is_active: bool,
     ) -> Result<Value, Box<dyn Error>> {
-        set_checkpoint_active(self, checkpoint_id, is_active)
+        set_checkpoint_active(self, checkpoint_id, is_active).await
     }
 
-    fn delete_checkpoint(&self, checkpoint_id: i32) -> Result<Value, Box<dyn Error>> {
-        delete_checkpoint(self, checkpoint_id)
+    async fn delete_checkpoint(&self, checkpoint_id: i32) -> Result<Value, Box<dyn Error>> {
+        delete_checkpoint(self, checkpoint_id).await
     }
 
-    fn get_active_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
-        get_active_checkpoints(self)
+    async fn get_active_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
+        get_active_checkpoints(self).await
     }
 
-    fn get_active_checkpoints_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
-        get_active_checkpoints_for_app(self, app_id)
+    async fn get_active_checkpoints_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
+        get_active_checkpoints_for_app(self, app_id).await
     }
 
-    fn get_all_timeline(&self) -> Result<Value, Box<dyn Error>> {
-        get_all_timeline(self)
+    async fn get_all_timeline(&self) -> Result<Value, Box<dyn Error>> {
+        get_all_timeline(self).await
     }
 
-    fn get_timeline_checkpoint_associations(&self) -> Result<Value, Box<dyn Error>> {
-        get_timeline_checkpoint_associations(self)
+    async fn get_timeline_checkpoint_associations(&self) -> Result<Value, Box<dyn Error>> {
+        get_timeline_checkpoint_associations(self).await
     }
 
-    fn create_timeline_checkpoint(
+    async fn create_timeline_checkpoint(
         &self,
         timeline_id: i32,
         checkpoint_id: i32,
     ) -> Result<Value, Box<dyn Error>> {
-        create_timeline_checkpoint(self, timeline_id, checkpoint_id)
+        create_timeline_checkpoint(self, timeline_id, checkpoint_id).await
     }
 
-    fn delete_timeline_checkpoint(
+    async fn delete_timeline_checkpoint(
         &self,
         timeline_id: i32,
         checkpoint_id: i32,
     ) -> Result<Value, Box<dyn Error>> {
-        delete_timeline_checkpoint(self, timeline_id, checkpoint_id)
+        delete_timeline_checkpoint(self, timeline_id, checkpoint_id).await
     }
 
-    fn get_timeline_checkpoints_for_timeline(
+    async fn get_timeline_checkpoints_for_timeline(
         &self,
         timeline_id: i32,
     ) -> Result<Value, Box<dyn Error>> {
-        get_timeline_checkpoints_for_timeline(self, timeline_id)
+        get_timeline_checkpoints_for_timeline(self, timeline_id).await
     }
 
-    fn get_checkpoint_durations(&self) -> Result<Value, Box<dyn Error>> {
-        get_checkpoint_durations(self)
+    async fn get_checkpoint_durations(&self) -> Result<Value, Box<dyn Error>> {
+        get_checkpoint_durations(self).await
     }
 
-    fn get_checkpoint_durations_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
-        get_checkpoint_durations_for_app(self, app_id)
+    async fn get_checkpoint_durations_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
+        get_checkpoint_durations_for_app(self, app_id).await
     }
 
-    fn update_checkpoint_duration(
+    async fn update_checkpoint_duration(
         &self,
         checkpoint_id: i32,
         app_id: i32,
         duration: i32,
         sessions_count: i32,
     ) -> Result<Value, Box<dyn Error>> {
-        update_checkpoint_duration(self, checkpoint_id, app_id, duration, sessions_count)
+        update_checkpoint_duration(self, checkpoint_id, app_id, duration, sessions_count).await
     }
 
-    fn get_all_active_checkpoints_table(&self) -> Result<Value, Box<dyn Error>> {
-        get_all_active_checkpoints_table(self)
+    async fn get_all_active_checkpoints_table(&self) -> Result<Value, Box<dyn Error>> {
+        get_all_active_checkpoints_table(self).await
     }
 
-    fn get_active_checkpoints_for_app_table(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
-        get_active_checkpoints_for_app_table(self, app_id)
+    async fn get_active_checkpoints_for_app_table(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
+        get_active_checkpoints_for_app_table(self, app_id).await
     }
 
-    fn activate_checkpoint(
+    async fn activate_checkpoint(
         &self,
         checkpoint_id: i32,
         app_id: i32,
     ) -> Result<Value, Box<dyn Error>> {
-        activate_checkpoint(self, checkpoint_id, app_id)
+        activate_checkpoint(self, checkpoint_id, app_id).await
     }
 
-    fn deactivate_checkpoint(
+    async fn deactivate_checkpoint(
         &self,
         checkpoint_id: i32,
         app_id: i32,
     ) -> Result<Value, Box<dyn Error>> {
-        deactivate_checkpoint(self, checkpoint_id, app_id)
+        deactivate_checkpoint(self, checkpoint_id, app_id).await
     }
 
-    fn is_checkpoint_active(
+    async fn is_checkpoint_active(
         &self,
         checkpoint_id: i32,
         app_id: i32,
     ) -> Result<bool, Box<dyn Error>> {
-        is_checkpoint_active(self, checkpoint_id, app_id)
+        is_checkpoint_active(self, checkpoint_id, app_id).await
     }
 }

@@ -18,6 +18,15 @@ where
     let client_arc = Arc::new(RwLock::new(client));
 
     thread::spawn(move || {
+        // Create a runtime for handling async operations
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(runtime) => runtime,
+            Err(e) => {
+                error!("Failed to create async runtime: {}", e);
+                return;
+            }
+        };
+
         let stream_handle = Arc::new(
             rodio::OutputStreamBuilder::open_default_stream().expect("open default audio stream"),
         );
@@ -25,6 +34,7 @@ where
         let embedded = Asset::get("when.ogg").expect("missing asset");
 
         let cursor = Arc::new(Cursor::new(embedded.data));
+        let rt_handle = rt.handle().clone();
 
         let add_device_ref = stream_handle.clone();
         let add_cursor_ref = cursor.clone();
@@ -32,7 +42,12 @@ where
         HomeKey.bind(move || {
             if LShiftKey.is_pressed() && LControlKey.is_pressed() {
                 if let (Some(path), Some(file_name)) = get_foreground_meta() {
-                    if let Err(e) = add_process(&file_name, &path, &client_arc) {
+                    // Handle the async function using our runtime
+                    let result = rt_handle.block_on(async {
+                        add_process(&file_name, &path, &client_arc).await
+                    });
+
+                    if let Err(e) = result {
                         error!("{}", e);
                     } else {
                         let file = BufReader::new((*add_cursor_ref).clone());

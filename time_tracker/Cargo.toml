@@ -25,6 +25,7 @@ toml = "0.5.6"
 serde_derive = "1.0.219"
 rust-embed = "8.7.2"
 tungstenite = "0.27.0"
+futures-util = "0.3.31"
 
 # SeaORM dependencies
 sea-orm = { version = "0.12", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ], optional = true }

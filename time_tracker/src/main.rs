@@ -149,7 +149,10 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
         Ok::<SeaORMClient, Box<dyn Error>>(client)
     })?;
 
-    time_tracking::init(seaorm_client)
+    // Handle the async function in a blocking manner
+    rt.block_on(async {
+        time_tracking::init(seaorm_client).await
+    })
 }
 
 #[cfg(not(any(feature = "firebase", feature = "psql")))]

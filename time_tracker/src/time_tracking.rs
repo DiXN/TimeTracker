@@ -31,13 +31,13 @@ macro_rules! active {
   }}
 }
 
-pub fn init<T>(client: T) -> Result<(), Box<dyn Error>>
+pub async fn init<T>(client: T) -> Result<(), Box<dyn Error>>
 where
     T: Restable + Clone + Sync + Send + 'static,
 {
-    client.setup()?;
+    client.setup().await?;
 
-    for p in client.get_processes()? {
+    for p in client.get_processes().await? {
         PROCESS_MAP.lock().unwrap().insert(p, (false, false));
     }
 
@@ -127,7 +127,7 @@ fn check_processes(spawn_tx: Sender<String>) {
     });
 }
 
-pub fn add_process<T: Restable>(
+pub async fn add_process<T: Restable>(
     process: &str,
     path: &str,
     client: &Arc<RwLock<T>>,
@@ -136,6 +136,7 @@ pub fn add_process<T: Restable>(
         .read()
         .unwrap()
         .get_processes()
+        .await
         .map(|ref p| p.contains(&process.to_owned()))?
     {
         return box_err!(AddError(format!(
@@ -150,7 +151,7 @@ pub fn add_process<T: Restable>(
         process.to_owned()
     };
 
-    client.read().unwrap().put_data(process, &product_name)?;
+    client.read().unwrap().put_data(process, &product_name).await?;
 
     PROCESS_MAP
         .lock()
@@ -162,11 +163,11 @@ pub fn add_process<T: Restable>(
     Ok(())
 }
 
-pub fn delete_process<T: Restable>(
+pub async fn delete_process<T: Restable>(
     process: &str,
     client: &Arc<RwLock<T>>,
 ) -> Result<(), Box<dyn Error>> {
-    client.read().unwrap().delete_data(process)?;
+    client.read().unwrap().delete_data(process).await?;
 
     PROCESS_MAP.lock().unwrap().remove(process);
 
