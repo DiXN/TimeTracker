@@ -17,6 +17,8 @@ pub trait Restable {
     fn get_timeline_data(&self, app_name: Option<&str>, days: i64)
     -> Result<Value, Box<dyn Error>>;
     fn get_all_timeline(&self) -> Result<Value, Box<dyn Error>>;
+    fn get_session_count_for_app(&self, app_id: i32) -> Result<i32, Box<dyn Error>>;
+    fn get_all_app_ids(&self) -> Result<Vec<i32>, Box<dyn Error>>;
 
     // Checkpoint methods
     fn get_all_checkpoints(&self) -> Result<Value, Box<dyn Error>>;

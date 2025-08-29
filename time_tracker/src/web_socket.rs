@@ -638,30 +638,21 @@ where
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
-    // Get all apps and create session counts
-    let apps_data = client_guard.get_all_apps()?;
-    let mut session_counts = Vec::new();
+    // Get all app IDs and create session counts
+    let app_ids = client_guard.get_all_app_ids()?;
+    let session_counts: Result<Vec<SessionCount>, Box<dyn std::error::Error>> = app_ids
+        .into_iter()
+        .map(|app_id| {
+            client_guard
+                .get_session_count_for_app(app_id)
+                .map(|session_count_value| SessionCount {
+                    app_id,
+                    session_count: session_count_value,
+                })
+        })
+        .collect();
 
-    if let Some(rows) = apps_data.as_array() {
-        for row in rows {
-            if let Some(obj) = row.as_object() {
-                let row_map: HashMap<String, String> = obj
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned()))
-                    .collect();
-
-                if let Some(app) = App::from_pg_row(&row_map) {
-                    // For simplicity, use launches as session count
-                    let session_count = SessionCount {
-                        app_id: app.id,
-                        session_count: app.launches.unwrap_or(0),
-                    };
-                    session_counts.push(session_count);
-                }
-            }
-        }
-    }
-
+    let session_counts = session_counts?;
     let counts_json = serde_json::to_string(&session_counts)?;
     let response = WebSocketMessage::session_counts_data(&counts_json);
 

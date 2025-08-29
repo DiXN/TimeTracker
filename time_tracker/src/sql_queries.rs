@@ -9,7 +9,9 @@ pub fn update_timeline(
     item: &str,
     date_str: &str,
 ) -> Result<u64, Box<dyn Error>> {
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
     Ok(connection.execute(
@@ -42,7 +44,9 @@ pub fn insert_timeline(
         None => 0,
     };
 
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
     Ok(connection.execute(
@@ -62,7 +66,9 @@ pub fn update_longest_session(
     current_session: i32,
     item: &str,
 ) -> Result<u64, Box<dyn Error>> {
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
     Ok(connection.execute(
@@ -81,7 +87,9 @@ pub fn update_longest_session_on(
     today: &str,
     item: &str,
 ) -> Result<u64, Box<dyn Error>> {
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
     Ok(connection.execute(
@@ -101,7 +109,9 @@ pub fn update_apps_generic(
     inc: i32,
     item: &str,
 ) -> Result<u64, Box<dyn Error>> {
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
     Ok(connection.execute(
@@ -155,7 +165,9 @@ pub fn create_checkpoint(
     };
 
     let description_value = description.unwrap_or("");
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
     Ok(connection.execute(
@@ -173,7 +185,9 @@ pub fn set_checkpoint_active(
     checkpoint_id: i32,
     is_active: bool,
 ) -> Result<u64, Box<dyn Error>> {
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
     Ok(connection.execute(
@@ -188,7 +202,9 @@ pub fn set_checkpoint_active(
 }
 
 pub fn delete_checkpoint(client: &PgClient, checkpoint_id: i32) -> Result<u64, Box<dyn Error>> {
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
     Ok(connection.execute(
@@ -259,6 +275,33 @@ pub fn get_all_timeline(client: &PgClient) -> Result<serde_json::Value, Box<dyn 
     client.get_data("SELECT * FROM timeline ORDER BY date DESC")
 }
 
+pub fn get_session_count_for_app(
+    client: &PgClient,
+    app_id: i32,
+) -> Result<i32, Box<dyn Error>> {
+    Ok(client.get_single_value::<i64>(&format!(
+        "SELECT count(*) FROM timeline WHERE app_id = {}",
+        app_id
+    )).unwrap_or(0) as i32)
+}
+
+pub fn get_all_app_ids(client: &PgClient) -> Result<Vec<i32>, Box<dyn Error>> {
+    client.get_data("SELECT id FROM apps ORDER BY id").map(|data| {
+        data.as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|obj| {
+                        obj.as_object()
+                            .and_then(|map| map.get("id"))
+                            .and_then(|id_val| id_val.as_str())
+                            .and_then(|id_str| id_str.parse::<i32>().ok())
+                    })
+                    .collect()
+            })
+            .unwrap_or_else(|| vec![])
+    })
+}
+
 // Timeline Checkpoint queries
 pub fn create_timeline_checkpoint(
     client: &PgClient,
@@ -272,7 +315,9 @@ pub fn create_timeline_checkpoint(
         None => 1,
     };
 
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
     Ok(connection.execute(
         &format!(
@@ -289,7 +334,9 @@ pub fn delete_timeline_checkpoint(
     timeline_id: i32,
     checkpoint_id: i32,
 ) -> Result<u64, Box<dyn Error>> {
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
     Ok(connection.execute(
         &format!(
@@ -343,7 +390,9 @@ pub fn update_checkpoint_duration(
     duration: i32,
     sessions_count: i32,
 ) -> Result<u64, Box<dyn Error>> {
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
     // First try to update existing record
@@ -415,7 +464,9 @@ pub fn activate_checkpoint(
         None => 1,
     };
 
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
     Ok(connection.execute(
         &format!(
@@ -432,7 +483,9 @@ pub fn deactivate_checkpoint(
     checkpoint_id: i32,
     app_id: i32,
 ) -> Result<u64, Box<dyn Error>> {
-    let connection = client.connection.lock()
+    let connection = client
+        .connection
+        .lock()
         .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
     Ok(connection.execute(
         &format!(

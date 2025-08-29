@@ -25,10 +25,11 @@ use crate::sql_queries::{
     get_active_checkpoints_for_app, get_active_checkpoints_for_app_table,
     get_all_active_checkpoints_table, get_all_checkpoints, get_all_timeline,
     get_checkpoint_durations, get_checkpoint_durations_for_app, get_checkpoints_for_app,
-    get_longest_session, get_number_from_apps, get_timeline_checkpoint_associations,
-    get_timeline_checkpoints_for_timeline, get_timeline_duration, insert_timeline,
-    is_checkpoint_active, set_checkpoint_active, update_apps_generic, update_checkpoint_duration,
-    update_longest_session, update_longest_session_on, update_timeline,
+    get_longest_session, get_number_from_apps, get_session_count_for_app, get_all_app_ids,
+    get_timeline_checkpoint_associations, get_timeline_checkpoints_for_timeline,
+    get_timeline_duration, insert_timeline, is_checkpoint_active, set_checkpoint_active,
+    update_apps_generic, update_checkpoint_duration, update_longest_session,
+    update_longest_session_on, update_timeline,
 };
 
 #[derive(Clone)]
@@ -80,7 +81,9 @@ impl PgClient {
 
 impl Restable for PgClient {
     fn setup(&self) -> Result<(), Box<dyn Error>> {
-        let connection = self.connection.lock()
+        let connection = self
+            .connection
+            .lock()
             .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
         let mut m = Migration::new();
@@ -185,7 +188,9 @@ impl Restable for PgClient {
     }
 
     fn get_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
-        let connection = self.connection.lock()
+        let connection = self
+            .connection
+            .lock()
             .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
         let mut col = Vec::new();
@@ -218,11 +223,9 @@ impl Restable for PgClient {
                         Some(i) => i.to_string(),
                         None => String::new(),
                     },
-                    _ => {
-                        match row.get::<_, Option<String>>(idx) {
-                            Some(s) => s,
-                            None => String::new(),
-                        }
+                    _ => match row.get::<_, Option<String>>(idx) {
+                        Some(s) => s,
+                        None => String::new(),
                     },
                 };
 
@@ -264,7 +267,9 @@ impl Restable for PgClient {
             None => 0,
         };
 
-        let connection = self.connection.lock()
+        let connection = self
+            .connection
+            .lock()
             .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
         connection.execute(
             &format!(
@@ -278,7 +283,9 @@ impl Restable for PgClient {
     }
 
     fn delete_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
-        let connection = self.connection.lock()
+        let connection = self
+            .connection
+            .lock()
             .map_err(|e| format!("Failed to acquire connection lock: {}", e))?;
 
         connection.execute(
@@ -391,6 +398,14 @@ impl Restable for PgClient {
         };
 
         self.get_data(&query)
+    }
+
+    fn get_session_count_for_app(&self, app_id: i32) -> Result<i32, Box<dyn Error>> {
+        get_session_count_for_app(self, app_id)
+    }
+
+    fn get_all_app_ids(&self) -> Result<Vec<i32>, Box<dyn Error>> {
+        get_all_app_ids(self)
     }
 
     fn get_all_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
