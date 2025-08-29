@@ -1,8 +1,8 @@
 use std::{error::Error, sync::Arc};
 
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, Database, DatabaseConnection, DbErr,
-    EntityTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
+    ActiveModelTrait, ActiveValue, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationTrait,
 };
 use serde_json::{Value, json};
 
@@ -11,9 +11,7 @@ use crate::restable::Restable;
 use crossbeam_channel::Receiver;
 
 // Import our entities
-use crate::entities::{
-    apps, timeline,
-};
+use crate::entities::{apps, timeline};
 
 // Import our SeaORM query functions
 use crate::seaorm_queries::*;
@@ -54,13 +52,17 @@ impl Restable for SeaORMClient {
             match parts.as_slice() {
                 ["apps"] => {
                     // Get all apps
-                    let apps: Vec<apps::Model> = apps::Entity::find().all(&*self.connection).await?;
+                    let apps: Vec<apps::Model> =
+                        apps::Entity::find().all(&*self.connection).await?;
                     let json_values: Vec<Value> = apps
                         .into_iter()
                         .map(|app| crate::seaorm_queries::model_to_json_with_context(app, "app"))
                         .collect();
-                    Ok(Value::Object(serde_json::Map::from_iter([("apps".to_string(), Value::Array(json_values))])))
-                },
+                    Ok(Value::Object(serde_json::Map::from_iter([(
+                        "apps".to_string(),
+                        Value::Array(json_values),
+                    )])))
+                }
                 ["apps", app_name] => {
                     // Get specific app
                     let app = apps::Entity::find()
@@ -70,9 +72,9 @@ impl Restable for SeaORMClient {
 
                     match app {
                         Some(app_model) => Ok(serde_json::to_value(app_model)?),
-                        None => Ok(Value::Null)
+                        None => Ok(Value::Null),
                     }
-                },
+                }
                 ["apps", app_name, field] => {
                     // Get specific field of an app
                     let app = apps::Entity::find()
@@ -85,16 +87,18 @@ impl Restable for SeaORMClient {
                             let value = match *field {
                                 "duration" => serde_json::to_value(app_model.duration)?,
                                 "launches" => serde_json::to_value(app_model.launches)?,
-                                "longestSession" => serde_json::to_value(app_model.longest_session)?,
+                                "longestSession" => {
+                                    serde_json::to_value(app_model.longest_session)?
+                                }
                                 "name" => serde_json::to_value(app_model.name)?,
                                 "productName" => serde_json::to_value(app_model.product_name)?,
-                                _ => Value::Null
+                                _ => Value::Null,
                             };
                             Ok(value)
-                        },
-                        None => Ok(Value::Null)
+                        }
+                        None => Ok(Value::Null),
                     }
-                },
+                }
                 _ => {
                     // For unsupported paths, return empty object
                     Ok(json!({}))
@@ -197,8 +201,11 @@ impl Restable for SeaORMClient {
                                     let longest_session = app_model.longest_session.unwrap_or(0);
                                     if current_session > longest_session {
                                         let mut app_active: apps::ActiveModel = app_model.into();
-                                        app_active.longest_session = ActiveValue::Set(Some(current_session));
-                                        app_active.longest_session_on = ActiveValue::Set(Some(chrono::Utc::now().naive_utc().date()));
+                                        app_active.longest_session =
+                                            ActiveValue::Set(Some(current_session));
+                                        app_active.longest_session_on = ActiveValue::Set(Some(
+                                            chrono::Utc::now().naive_utc().date(),
+                                        ));
                                         app_active.update(&*self.connection).await?;
                                     }
                                 }
@@ -208,7 +215,7 @@ impl Restable for SeaORMClient {
                                 eprintln!("Error updating longest session for {}: {}", app_name, e);
                             }
                         }
-                    },
+                    }
                     ReceiveTypes::Duration => {
                         if let Err(e) = rt.block_on(async {
                             // Find the app by name and increment duration
@@ -230,7 +237,7 @@ impl Restable for SeaORMClient {
                         }) {
                             eprintln!("Error updating duration for {}: {}", item, e);
                         }
-                    },
+                    }
                     ReceiveTypes::Launches => {
                         if let Err(e) = rt.block_on(async {
                             // Find the app by name and increment launches
@@ -252,7 +259,7 @@ impl Restable for SeaORMClient {
                         }) {
                             eprintln!("Error updating launches for {}: {}", item, e);
                         }
-                    },
+                    }
                     ReceiveTypes::Timeline => {
                         if let Err(e) = rt.block_on(async {
                             // Find the app by name
@@ -277,7 +284,8 @@ impl Restable for SeaORMClient {
                                     let current_duration = timeline_model.duration.unwrap_or(0);
                                     let new_duration = current_duration + 1;
 
-                                    let mut timeline_active: timeline::ActiveModel = timeline_model.into();
+                                    let mut timeline_active: timeline::ActiveModel =
+                                        timeline_model.into();
                                     timeline_active.duration = ActiveValue::Set(Some(new_duration));
                                     timeline_active.update(&*self.connection).await?;
                                 } else {
@@ -355,13 +363,11 @@ impl Restable for SeaORMClient {
 
                 let json_values: Vec<Value> = timeline_entries
                     .into_iter()
-                    .map(|entry| {
-                        match serde_json::to_value(entry) {
-                            Ok(val) => val,
-                            Err(e) => {
-                                eprintln!("Failed to serialize timeline entry: {}", e);
-                                Value::Null
-                            }
+                    .map(|entry| match serde_json::to_value(entry) {
+                        Ok(val) => val,
+                        Err(e) => {
+                            eprintln!("Failed to serialize timeline entry: {}", e);
+                            Value::Null
                         }
                     })
                     .collect();
@@ -380,7 +386,9 @@ impl Restable for SeaORMClient {
 
                 let json_values: Vec<Value> = timeline_entries
                     .into_iter()
-                    .map(|entry| crate::seaorm_queries::model_to_json_with_context(entry, "timeline entry"))
+                    .map(|entry| {
+                        crate::seaorm_queries::model_to_json_with_context(entry, "timeline entry")
+                    })
                     .collect();
 
                 Ok(Value::Array(json_values))

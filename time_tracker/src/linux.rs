@@ -1,10 +1,5 @@
 use std::{
-    collections::HashMap,
-    env,
-    error::Error as Std_Error,
-    io::{Error},
-    process::Command,
-    thread,
+    collections::HashMap, env, error::Error as Std_Error, io::Error, process::Command, thread,
 };
 
 use procfs::process::Process;
@@ -106,9 +101,7 @@ fn get_active_window_niri() -> Result<(String, String), Box<dyn Std_Error>> {
         .ok_or("Could not determine active window".into())
 }
 
-pub fn ux_are_processes_running(
-    processes: &[String],
-) -> Result<HashMap<&String, bool>, Error> {
+pub fn ux_are_processes_running(processes: &[String]) -> Result<HashMap<&String, bool>, Error> {
     let mut map = HashMap::new();
     let sys = System::new_all();
 

@@ -35,16 +35,12 @@ macro_rules! ns_invoke {
 }
 
 #[cfg(windows)]
-pub fn are_processes_running(
-    processes: &[String],
-) -> Result<HashMap<&String, bool>, Error> {
+pub fn are_processes_running(processes: &[String]) -> Result<HashMap<&String, bool>, Error> {
     nt_are_processes_running(processes)
 }
 
 #[cfg(target_os = "linux")]
-pub fn are_processes_running(
-    processes: &[String],
-) -> Result<HashMap<&String, bool>, Error> {
+pub fn are_processes_running(processes: &[String]) -> Result<HashMap<&String, bool>, Error> {
     ux_are_processes_running(processes)
 }
 

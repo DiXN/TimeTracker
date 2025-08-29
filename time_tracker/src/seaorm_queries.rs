@@ -1,8 +1,8 @@
 use std::error::Error;
 
 use sea_orm::{
-    EntityTrait, QueryFilter, QuerySelect, ColumnTrait, QueryOrder,
-    ActiveModelTrait, ActiveValue, RelationTrait, PaginatorTrait
+    ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, RelationTrait,
 };
 use serde_json::Value;
 
@@ -10,7 +10,7 @@ use crate::seaorm_client::SeaORMClient;
 
 // Import our entities
 use crate::entities::{
-    apps, timeline, checkpoints, timeline_checkpoints, checkpoint_durations, active_checkpoints
+    active_checkpoints, apps, checkpoint_durations, checkpoints, timeline, timeline_checkpoints,
 };
 
 // Helper function to convert SeaORM model to JSON
@@ -25,7 +25,10 @@ fn model_to_json<T: serde::Serialize>(model: T) -> serde_json::Value {
 }
 
 // Helper function to convert SeaORM model to JSON with custom error context
-pub fn model_to_json_with_context<T: serde::Serialize>(model: T, context: &str) -> serde_json::Value {
+pub fn model_to_json_with_context<T: serde::Serialize>(
+    model: T,
+    context: &str,
+) -> serde_json::Value {
     match serde_json::to_value(model) {
         Ok(val) => val,
         Err(e) => {
@@ -84,11 +87,12 @@ pub fn set_checkpoint_active(
     let rt = tokio::runtime::Runtime::new()?;
 
     rt.block_on(async {
-        let mut checkpoint: checkpoints::ActiveModel = checkpoints::Entity::find_by_id(checkpoint_id)
-            .one(&*client.connection)
-            .await?
-            .ok_or("Checkpoint not found")?
-            .into();
+        let mut checkpoint: checkpoints::ActiveModel =
+            checkpoints::Entity::find_by_id(checkpoint_id)
+                .one(&*client.connection)
+                .await?
+                .ok_or("Checkpoint not found")?
+                .into();
 
         checkpoint.is_active = ActiveValue::Set(Some(is_active));
 
@@ -98,7 +102,10 @@ pub fn set_checkpoint_active(
     })
 }
 
-pub fn delete_checkpoint(client: &SeaORMClient, checkpoint_id: i32) -> Result<Value, Box<dyn Error>> {
+pub fn delete_checkpoint(
+    client: &SeaORMClient,
+    checkpoint_id: i32,
+) -> Result<Value, Box<dyn Error>> {
     let rt = tokio::runtime::Runtime::new()?;
 
     rt.block_on(async {
@@ -119,7 +126,8 @@ pub fn get_all_checkpoints(client: &SeaORMClient) -> Result<Value, Box<dyn Error
             .all(&*client.connection)
             .await?;
 
-        let json_values: Vec<Value> = checkpoints.into_iter()
+        let json_values: Vec<Value> = checkpoints
+            .into_iter()
             .map(|checkpoint| model_to_json_with_context(checkpoint, "checkpoint"))
             .collect();
 
@@ -140,7 +148,8 @@ pub fn get_checkpoints_for_app(
             .all(&*client.connection)
             .await?;
 
-        let json_values: Vec<Value> = checkpoints.into_iter()
+        let json_values: Vec<Value> = checkpoints
+            .into_iter()
             .map(|checkpoint| model_to_json_with_context(checkpoint, "checkpoint"))
             .collect();
 
@@ -153,12 +162,16 @@ pub fn get_active_checkpoints(client: &SeaORMClient) -> Result<Value, Box<dyn Er
 
     rt.block_on(async {
         let checkpoints = checkpoints::Entity::find()
-            .join(sea_orm::JoinType::InnerJoin, checkpoints::Relation::ActiveCheckpoints.def())
+            .join(
+                sea_orm::JoinType::InnerJoin,
+                checkpoints::Relation::ActiveCheckpoints.def(),
+            )
             .order_by_desc(checkpoints::Column::Id)
             .all(&*client.connection)
             .await?;
 
-        let json_values: Vec<Value> = checkpoints.into_iter()
+        let json_values: Vec<Value> = checkpoints
+            .into_iter()
             .map(|checkpoint| model_to_json_with_context(checkpoint, "checkpoint"))
             .collect();
 
@@ -175,12 +188,16 @@ pub fn get_active_checkpoints_for_app(
     rt.block_on(async {
         let checkpoints = checkpoints::Entity::find()
             .filter(checkpoints::Column::AppId.eq(app_id))
-            .join(sea_orm::JoinType::InnerJoin, checkpoints::Relation::ActiveCheckpoints.def())
+            .join(
+                sea_orm::JoinType::InnerJoin,
+                checkpoints::Relation::ActiveCheckpoints.def(),
+            )
             .order_by_desc(checkpoints::Column::Id)
             .all(&*client.connection)
             .await?;
 
-        let json_values: Vec<Value> = checkpoints.into_iter()
+        let json_values: Vec<Value> = checkpoints
+            .into_iter()
             .map(|checkpoint| model_to_json_with_context(checkpoint, "checkpoint"))
             .collect();
 
@@ -198,7 +215,8 @@ pub fn get_all_timeline(client: &SeaORMClient) -> Result<Value, Box<dyn Error>> 
             .all(&*client.connection)
             .await?;
 
-        let json_values: Vec<Value> = timeline_entries.into_iter()
+        let json_values: Vec<Value> = timeline_entries
+            .into_iter()
             .map(|entry| model_to_json_with_context(entry, "timeline entry"))
             .collect();
 
@@ -213,12 +231,19 @@ pub fn get_timeline_checkpoint_associations(
 
     rt.block_on(async {
         let associations: Vec<timeline_checkpoints::Model> = timeline_checkpoints::Entity::find()
-            .order_by(timeline_checkpoints::Column::TimelineId, sea_orm::Order::Asc)
-            .order_by(timeline_checkpoints::Column::CheckpointId, sea_orm::Order::Asc)
+            .order_by(
+                timeline_checkpoints::Column::TimelineId,
+                sea_orm::Order::Asc,
+            )
+            .order_by(
+                timeline_checkpoints::Column::CheckpointId,
+                sea_orm::Order::Asc,
+            )
             .all(&*client.connection)
             .await?;
 
-        let json_values: Vec<Value> = associations.into_iter()
+        let json_values: Vec<Value> = associations
+            .into_iter()
             .map(|association| model_to_json_with_context(association, "association"))
             .collect();
 
@@ -272,8 +297,9 @@ pub fn delete_timeline_checkpoint(
     rt.block_on(async {
         timeline_checkpoints::Entity::delete_many()
             .filter(
-                timeline_checkpoints::Column::TimelineId.eq(timeline_id)
-                    .and(timeline_checkpoints::Column::CheckpointId.eq(checkpoint_id))
+                timeline_checkpoints::Column::TimelineId
+                    .eq(timeline_id)
+                    .and(timeline_checkpoints::Column::CheckpointId.eq(checkpoint_id)),
             )
             .exec(&*client.connection)
             .await?;
@@ -289,13 +315,15 @@ pub fn get_timeline_checkpoints_for_timeline(
     let rt = tokio::runtime::Runtime::new()?;
 
     rt.block_on(async {
-        let timeline_checkpoints: Vec<timeline_checkpoints::Model> = timeline_checkpoints::Entity::find()
-            .filter(timeline_checkpoints::Column::TimelineId.eq(timeline_id))
-            .order_by_desc(timeline_checkpoints::Column::CreatedAt)
-            .all(&*client.connection)
-            .await?;
+        let timeline_checkpoints: Vec<timeline_checkpoints::Model> =
+            timeline_checkpoints::Entity::find()
+                .filter(timeline_checkpoints::Column::TimelineId.eq(timeline_id))
+                .order_by_desc(timeline_checkpoints::Column::CreatedAt)
+                .all(&*client.connection)
+                .await?;
 
-        let json_values: Vec<Value> = timeline_checkpoints.into_iter()
+        let json_values: Vec<Value> = timeline_checkpoints
+            .into_iter()
             .map(|tc| model_to_json_with_context(tc, "timeline checkpoint"))
             .collect();
 
@@ -313,7 +341,8 @@ pub fn get_checkpoint_durations(client: &SeaORMClient) -> Result<Value, Box<dyn 
             .all(&*client.connection)
             .await?;
 
-        let json_values: Vec<Value> = durations.into_iter()
+        let json_values: Vec<Value> = durations
+            .into_iter()
             .map(|duration| model_to_json_with_context(duration, "duration"))
             .collect();
 
@@ -334,7 +363,8 @@ pub fn get_checkpoint_durations_for_app(
             .all(&*client.connection)
             .await?;
 
-        let json_values: Vec<Value> = durations.into_iter()
+        let json_values: Vec<Value> = durations
+            .into_iter()
             .map(|duration| model_to_json_with_context(duration, "duration"))
             .collect();
 
@@ -355,8 +385,9 @@ pub fn update_checkpoint_duration(
         // Try to find existing record
         let existing = checkpoint_durations::Entity::find()
             .filter(
-                checkpoint_durations::Column::CheckpointId.eq(checkpoint_id)
-                    .and(checkpoint_durations::Column::AppId.eq(app_id))
+                checkpoint_durations::Column::CheckpointId
+                    .eq(checkpoint_id)
+                    .and(checkpoint_durations::Column::AppId.eq(app_id)),
             )
             .one(&*client.connection)
             .await?;
@@ -400,9 +431,7 @@ pub fn update_checkpoint_duration(
 }
 
 // Active checkpoint queries
-pub fn get_all_active_checkpoints_table(
-    client: &SeaORMClient,
-) -> Result<Value, Box<dyn Error>> {
+pub fn get_all_active_checkpoints_table(client: &SeaORMClient) -> Result<Value, Box<dyn Error>> {
     let rt = tokio::runtime::Runtime::new()?;
 
     rt.block_on(async {
@@ -411,7 +440,8 @@ pub fn get_all_active_checkpoints_table(
             .all(&*client.connection)
             .await?;
 
-        let json_values: Vec<Value> = active_checkpoints.into_iter()
+        let json_values: Vec<Value> = active_checkpoints
+            .into_iter()
             .map(|ac| model_to_json_with_context(ac, "active checkpoint"))
             .collect();
 
@@ -432,7 +462,8 @@ pub fn get_active_checkpoints_for_app_table(
             .all(&*client.connection)
             .await?;
 
-        let json_values: Vec<Value> = active_checkpoints.into_iter()
+        let json_values: Vec<Value> = active_checkpoints
+            .into_iter()
             .map(|ac| model_to_json_with_context(ac, "active checkpoint"))
             .collect();
 
@@ -485,8 +516,9 @@ pub fn deactivate_checkpoint(
     rt.block_on(async {
         active_checkpoints::Entity::delete_many()
             .filter(
-                active_checkpoints::Column::CheckpointId.eq(checkpoint_id)
-                    .and(active_checkpoints::Column::AppId.eq(app_id))
+                active_checkpoints::Column::CheckpointId
+                    .eq(checkpoint_id)
+                    .and(active_checkpoints::Column::AppId.eq(app_id)),
             )
             .exec(&*client.connection)
             .await?;
@@ -505,8 +537,9 @@ pub fn is_checkpoint_active(
     rt.block_on(async {
         let count = active_checkpoints::Entity::find()
             .filter(
-                active_checkpoints::Column::CheckpointId.eq(checkpoint_id)
-                    .and(active_checkpoints::Column::AppId.eq(app_id))
+                active_checkpoints::Column::CheckpointId
+                    .eq(checkpoint_id)
+                    .and(active_checkpoints::Column::AppId.eq(app_id)),
             )
             .count(&*client.connection)
             .await?;

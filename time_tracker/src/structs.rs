@@ -117,12 +117,7 @@ impl Timeline {
 }
 
 impl Checkpoint {
-    pub fn new(
-        id: i32,
-        name: Option<String>,
-        description: Option<String>,
-        app_id: i32,
-    ) -> Self {
+    pub fn new(id: i32, name: Option<String>, description: Option<String>, app_id: i32) -> Self {
         Checkpoint {
             id,
             name,
