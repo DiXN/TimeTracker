@@ -13,6 +13,17 @@ pub struct App {
     pub longest_session_on: Option<NaiveDate>,
 }
 
+/// Serializes an Option<NaiveDateTime> as an empty string if None, or the datetime string if Some
+fn serialize_optional_datetime<S>(value: &Option<chrono::NaiveDateTime>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match value {
+        Some(dt) => serializer.serialize_str(&dt.format("%Y-%m-%dT%H:%M:%S%.f").to_string()),
+        None => serializer.serialize_str(""),
+    }
+}
+
 impl App {
     pub fn new(id: i32, name: Option<String>, product_name: Option<String>) -> Self {
         App {
@@ -40,7 +51,9 @@ pub struct Checkpoint {
     pub id: i32,
     pub name: Option<String>,
     pub description: Option<String>,
+    #[serde(serialize_with = "serialize_optional_datetime")]
     pub created_at: Option<NaiveDateTime>,
+    #[serde(serialize_with = "serialize_optional_datetime")]
     pub valid_from: Option<NaiveDateTime>,
     pub color: Option<String>,
     pub app_id: i32,
@@ -52,6 +65,7 @@ pub struct TimelineCheckpoint {
     pub id: i32,
     pub timeline_id: i32,
     pub checkpoint_id: i32,
+    #[serde(serialize_with = "serialize_optional_datetime")]
     pub created_at: Option<NaiveDateTime>,
 }
 
@@ -62,6 +76,7 @@ pub struct CheckpointDuration {
     pub app_id: i32,
     pub duration: Option<i32>,
     pub sessions_count: Option<i32>,
+    #[serde(serialize_with = "serialize_optional_datetime")]
     pub last_updated: Option<NaiveDateTime>,
 }
 
@@ -69,6 +84,7 @@ pub struct CheckpointDuration {
 pub struct ActiveCheckpoint {
     pub id: i32,
     pub checkpoint_id: i32,
+    #[serde(serialize_with = "serialize_optional_datetime")]
     pub activated_at: Option<NaiveDateTime>,
     pub app_id: i32,
 }
@@ -417,10 +433,11 @@ impl Checkpoint {
                 .get(key)
                 .filter(|s| !s.is_empty())
                 .and_then(|datetime_str| {
+                    // Try multiple formats to handle different datetime representations
                     NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
-                        .or_else(|_| {
-                            NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")
-                        })
+                        .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S"))
+                        .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S%.f"))
+                        .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S"))
                         .ok()
                 })
         };
@@ -458,8 +475,11 @@ impl TimelineCheckpoint {
             .get("created_at")
             .filter(|s| !s.is_empty())
             .and_then(|datetime_str| {
+                // Try multiple formats to handle different datetime representations
                 NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
                     .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S"))
+                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S%.f"))
+                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S"))
                     .ok()
             });
 
@@ -492,8 +512,11 @@ impl CheckpointDuration {
             .get("last_updated")
             .filter(|s| !s.is_empty())
             .and_then(|datetime_str| {
+                // Try multiple formats to handle different datetime representations
                 NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
                     .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S"))
+                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S%.f"))
+                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S"))
                     .ok()
             });
 
@@ -518,8 +541,11 @@ impl ActiveCheckpoint {
             .get("activated_at")
             .filter(|s| !s.is_empty())
             .and_then(|datetime_str| {
+                // Try multiple formats to handle different datetime representations
                 NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
                     .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S"))
+                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S%.f"))
+                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S"))
                     .ok()
             });
 
