@@ -113,7 +113,7 @@ impl Restable for FirebaseClient {
 
             while let Ok(rx) = rx.recv() {
                 match rx {
-                    (item, ReceiveTypes::LONGEST_SESSION) => {
+                    (item, ReceiveTypes::LongestSession) => {
                         let split = item.split(";").collect::<Vec<&str>>();
                         if let Ok(ret) =
                             self.get_data(&format!("/apps/{}/longestSession", split[0]))
@@ -131,9 +131,9 @@ impl Restable for FirebaseClient {
                             }
                         }
                     }
-                    (item, ReceiveTypes::DURATION) => patch_increment(&item, "duration"),
-                    (item, ReceiveTypes::LAUNCHES) => patch_increment(&item, "launches"),
-                    (item, ReceiveTypes::TIMELINE) => {
+                    (item, ReceiveTypes::Duration) => patch_increment(&item, "duration"),
+                    (item, ReceiveTypes::Launches) => patch_increment(&item, "launches"),
+                    (item, ReceiveTypes::Timeline) => {
                         let dt = Local::now();
                         let date_str = format!(
                             "apps/{}/timeline/year/{}/{}/{}",

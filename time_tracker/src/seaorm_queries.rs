@@ -2,11 +2,10 @@ use std::error::Error;
 
 use sea_orm::{
     EntityTrait, QueryFilter, QuerySelect, ColumnTrait, QueryOrder,
-    ActiveModelTrait, ActiveValue, IntoActiveModel, RelationTrait, PaginatorTrait
+    ActiveModelTrait, ActiveValue, RelationTrait, PaginatorTrait
 };
 use serde_json::Value;
 
-use crate::restable::Restable;
 use crate::seaorm_client::SeaORMClient;
 
 // Import our entities

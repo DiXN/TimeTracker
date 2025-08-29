@@ -121,21 +121,17 @@ impl Checkpoint {
         id: i32,
         name: Option<String>,
         description: Option<String>,
-        created_at: Option<NaiveDateTime>,
-        valid_from: Option<NaiveDateTime>,
-        color: Option<String>,
         app_id: i32,
-        is_active: Option<bool>,
     ) -> Self {
         Checkpoint {
             id,
             name,
             description,
-            created_at,
-            valid_from,
-            color,
+            created_at: None,
+            valid_from: None,
+            color: None,
             app_id,
-            is_active,
+            is_active: None,
         }
     }
 }

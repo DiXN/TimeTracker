@@ -2,7 +2,7 @@ use std::{error::Error, sync::Arc};
 
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, Database, DatabaseConnection, DbErr,
-    EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
+    EntityTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
 };
 use serde_json::{Value, json};
 
@@ -12,7 +12,7 @@ use crossbeam_channel::Receiver;
 
 // Import our entities
 use crate::entities::{
-    active_checkpoints, apps, checkpoint_durations, checkpoints, timeline, timeline_checkpoints,
+    apps, timeline,
 };
 
 // Import our SeaORM query functions
@@ -173,7 +173,7 @@ impl Restable for SeaORMClient {
 
             while let Ok((item, receive_type)) = rx.recv() {
                 match receive_type {
-                    ReceiveTypes::LONGEST_SESSION => {
+                    ReceiveTypes::LongestSession => {
                         let split: Vec<&str> = item.split(';').collect();
                         if split.len() >= 2 {
                             let app_name = split[0];
@@ -209,7 +209,7 @@ impl Restable for SeaORMClient {
                             }
                         }
                     },
-                    ReceiveTypes::DURATION => {
+                    ReceiveTypes::Duration => {
                         if let Err(e) = rt.block_on(async {
                             // Find the app by name and increment duration
                             let app = apps::Entity::find()
@@ -231,7 +231,7 @@ impl Restable for SeaORMClient {
                             eprintln!("Error updating duration for {}: {}", item, e);
                         }
                     },
-                    ReceiveTypes::LAUNCHES => {
+                    ReceiveTypes::Launches => {
                         if let Err(e) = rt.block_on(async {
                             // Find the app by name and increment launches
                             let app = apps::Entity::find()
@@ -253,7 +253,7 @@ impl Restable for SeaORMClient {
                             eprintln!("Error updating launches for {}: {}", item, e);
                         }
                     },
-                    ReceiveTypes::TIMELINE => {
+                    ReceiveTypes::Timeline => {
                         if let Err(e) = rt.block_on(async {
                             // Find the app by name
                             let app = apps::Entity::find()

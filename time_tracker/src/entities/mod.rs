@@ -7,7 +7,3 @@ pub mod active_checkpoints;
 
 pub use apps::Entity as Apps;
 pub use timeline::Entity as Timeline;
-pub use checkpoints::Entity as Checkpoints;
-pub use timeline_checkpoints::Entity as TimelineCheckpoints;
-pub use checkpoint_durations::Entity as CheckpointDurations;
-pub use active_checkpoints::Entity as ActiveCheckpoints;

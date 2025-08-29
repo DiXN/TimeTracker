@@ -18,8 +18,8 @@ use crate::rpc::init_rpc;
 use crate::web_socket::init_web_socket;
 
 lazy_static! {
-    static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = { Mutex::new(HashMap::new()) };
-    static ref PAUSE: RwLock<bool> = { RwLock::new(false) };
+    static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = Mutex::new(HashMap::new());
+    static ref PAUSE: RwLock<bool> = RwLock::new(false);
 }
 
 //"time_tracker" is not paused.
@@ -59,7 +59,7 @@ where
         let tx_arc_clone = tx_arc.clone();
 
         thread::spawn(move || {
-            active! { tx_arc_clone.send((p.to_owned(), ReceiveTypes::LAUNCHES)).unwrap(); };
+            active! { tx_arc_clone.send((p.to_owned(), ReceiveTypes::Launches)).unwrap(); };
 
             let mut counter = 0;
 
@@ -69,8 +69,8 @@ where
                 active! {
                   if let Some((fst, snd)) = PROCESS_MAP.lock().unwrap().get_mut(&p) {
                     if *fst {
-                      tx_arc_clone.send((p.to_owned(), ReceiveTypes::DURATION)).unwrap();
-                      tx_arc_clone.send((p.to_owned(), ReceiveTypes::TIMELINE)).unwrap();
+                      tx_arc_clone.send((p.to_owned(), ReceiveTypes::Duration)).unwrap();
+                      tx_arc_clone.send((p.to_owned(), ReceiveTypes::Timeline)).unwrap();
                       counter += 1;
                     } else {
                       *snd = false;
@@ -80,7 +80,7 @@ where
                 }
             }
 
-            active! { tx_arc_clone.send((format!("{};{}", p.to_owned(), counter.to_string()), ReceiveTypes::LONGEST_SESSION)).unwrap(); }
+            active! { tx_arc_clone.send((format!("{};{}", p.to_owned(), counter), ReceiveTypes::LongestSession)).unwrap(); }
 
             info!("Process: {} has finished.", p)
         });
@@ -95,20 +95,20 @@ fn check_processes(spawn_tx: Sender<String>) {
             let p_map = PROCESS_MAP.lock().unwrap();
 
             let processes = p_map
-                .iter()
-                .map(|(key, _)| format!("{}.exe", key))
+                .keys()
+                .map(|key| format!("{}.exe", key))
                 .collect::<Vec<String>>();
 
             drop(p_map);
 
             if let Ok(m) = are_processes_running(&processes[..]) {
-                if m.len() == 0 {
+                if m.is_empty() {
                     thread::sleep(Duration::from_millis(10000));
                     continue;
                 }
 
                 for (p, (fst, snd)) in PROCESS_MAP.lock().unwrap().iter_mut() {
-                    if m.get(&format!("{}.exe", p)).is_some() {
+                    if m.contains_key(&format!("{}.exe", p)) {
                         *fst = true;
                         if !*snd {
                             *snd = true;

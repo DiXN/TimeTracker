@@ -42,7 +42,7 @@ mod seaorm_queries;
 mod migration;
 
 mod native;
-use crate::native::{autostart, get_foreground_meta, init_tray};
+use crate::native::{autostart, init_tray};
 
 #[cfg(windows)]
 mod windows;
@@ -149,7 +149,7 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
         Ok::<SeaORMClient, Box<dyn Error>>(client)
     })?;
 
-    Ok(time_tracking::init(seaorm_client)?)
+    time_tracking::init(seaorm_client)
 }
 
 #[cfg(not(any(feature = "firebase", feature = "psql")))]

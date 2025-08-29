@@ -1,11 +1,8 @@
-use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use std::thread;
 
 use serde_json::Value;
 use serde_json::json;
-
-use jsonrpc_core;
 
 use jsonrpc_core::{
     IoHandler, Params,

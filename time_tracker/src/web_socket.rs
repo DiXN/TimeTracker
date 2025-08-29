@@ -177,20 +177,20 @@ where
     let mut associations_map: HashMap<i32, Vec<i32>> = HashMap::new();
     if let Some(rows) = associations_data.as_array() {
         for row in rows {
-            if let Some(obj) = row.as_object() {
-                if let (Some(timeline_id), Some(checkpoint_id)) = (
+            if let Some(obj) = row.as_object()
+                && let (Some(timeline_id), Some(checkpoint_id)) = (
                     obj.get("timeline_id")
                         .and_then(|v| v.as_str())
                         .and_then(|s| s.parse::<i32>().ok()),
                     obj.get("checkpoint_id")
                         .and_then(|v| v.as_str())
                         .and_then(|s| s.parse::<i32>().ok()),
-                ) {
-                    associations_map
-                        .entry(timeline_id)
-                        .or_insert_with(Vec::new)
-                        .push(checkpoint_id);
-                }
+                )
+            {
+                associations_map
+                    .entry(timeline_id)
+                    .or_default()
+                    .push(checkpoint_id);
             }
         }
     }
@@ -604,7 +604,7 @@ where
 }
 
 fn handle_get_tracking_status<T>(
-    client: &Arc<RwLock<T>>,
+    _client: &Arc<RwLock<T>>,
     _payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where

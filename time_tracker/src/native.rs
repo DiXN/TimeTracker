@@ -1,4 +1,3 @@
-use std::io::ErrorKind;
 use std::process::Command;
 use std::{collections::HashMap, error::Error as Std_Error, io::Error, process::ExitStatus};
 
@@ -36,16 +35,16 @@ macro_rules! ns_invoke {
 }
 
 #[cfg(windows)]
-pub fn are_processes_running<'a>(
-    processes: &'a [String],
-) -> Result<HashMap<&'a String, bool>, Error> {
+pub fn are_processes_running(
+    processes: &[String],
+) -> Result<HashMap<&String, bool>, Error> {
     nt_are_processes_running(processes)
 }
 
 #[cfg(target_os = "linux")]
-pub fn are_processes_running<'a>(
-    processes: &'a [String],
-) -> Result<HashMap<&'a String, bool>, Error> {
+pub fn are_processes_running(
+    processes: &[String],
+) -> Result<HashMap<&String, bool>, Error> {
     ux_are_processes_running(processes)
 }
 
@@ -55,7 +54,7 @@ pub fn ver_query_value(path: &str) -> Option<String> {
 }
 
 #[cfg(not(windows))]
-pub fn ver_query_value(path: &str) -> Option<String> {
+pub fn ver_query_value(_path: &str) -> Option<String> {
     None
 }
 

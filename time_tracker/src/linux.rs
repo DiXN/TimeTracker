@@ -2,8 +2,7 @@ use std::{
     collections::HashMap,
     env,
     error::Error as Std_Error,
-    fs,
-    io::{Error, ErrorKind},
+    io::{Error},
     process::Command,
     thread,
 };
@@ -15,7 +14,7 @@ use niri_ipc::socket::Socket;
 use niri_ipc::{Request, Response};
 
 fn is_x11_session() -> bool {
-    env::var("XDG_SESSION_TYPE").map_or(false, |session_type| session_type == "x11")
+    env::var("XDG_SESSION_TYPE").is_ok_and(|session_type| session_type == "x11")
 }
 
 fn is_niri_session() -> bool {
@@ -51,19 +50,17 @@ fn get_active_window_x11() -> Result<(String, String), Box<dyn Std_Error>> {
     for line in window_list.lines() {
         if line.starts_with(window_id) {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 {
-                if let Ok(pid) = parts[2].parse::<i32>() {
-                    if let Ok(process) = Process::new(pid) {
-                        if let Ok(exe) = process.exe() {
-                            let path = exe.to_string_lossy().into_owned();
-                            let name = exe
-                                .file_name()
-                                .map(|n| n.to_string_lossy().into_owned())
-                                .unwrap_or_else(|| "unknown".to_string());
-                            return Ok((path, name));
-                        }
-                    }
-                }
+            if parts.len() >= 3
+                && let Ok(pid) = parts[2].parse::<i32>()
+                && let Ok(process) = Process::new(pid)
+                && let Ok(exe) = process.exe()
+            {
+                let path = exe.to_string_lossy().into_owned();
+                let name = exe
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "unknown".to_string());
+                return Ok((path, name));
             }
         }
     }
@@ -109,13 +106,13 @@ fn get_active_window_niri() -> Result<(String, String), Box<dyn Std_Error>> {
         .ok_or("Could not determine active window".into())
 }
 
-pub fn ux_are_processes_running<'a>(
-    processes: &'a [String],
-) -> Result<HashMap<&'a String, bool>, Error> {
+pub fn ux_are_processes_running(
+    processes: &[String],
+) -> Result<HashMap<&String, bool>, Error> {
     let mut map = HashMap::new();
     let sys = System::new_all();
 
-    for (_, process) in sys.processes() {
+    for process in sys.processes().values() {
         let process_name = process.name().to_str().unwrap_or("");
         for target_process in processes {
             if target_process == &format!("{}.exe", process_name) {
@@ -133,15 +130,13 @@ pub fn ux_get_foreground_meta() -> (Option<String>, Option<String>) {
             Ok((path, name)) => (Some(path), Some(name)),
             Err(_) => (None, None),
         }
-    } else {
-        if is_niri_session() {
-            match get_active_window_niri() {
-                Ok((path, name)) => (Some(path), Some(name)),
-                Err(_) => (None, None),
-            }
-        } else {
-            (None, None)
+    } else if is_niri_session() {
+        match get_active_window_niri() {
+            Ok((path, name)) => (Some(path), Some(name)),
+            Err(_) => (None, None),
         }
+    } else {
+        (None, None)
     }
 }
 

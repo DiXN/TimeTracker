@@ -1,5 +1,3 @@
-use std::process::Command;
-
 fn main() {
     // This build script is intentionally left empty.
     // In a real application, you might want to run migrations here,
