@@ -1,15 +1,13 @@
 use std::{
-  fmt::{
-    Display,
-    Formatter,
-    Result
-  },
-  error::Error
+    error::Error,
+    fmt::{Display, Formatter, Result},
 };
 
 #[macro_export]
 macro_rules! box_err {
-  ($ expr:expr) => { Result::Err(Box::new($expr)) };
+    ($ expr:expr) => {
+        Result::Err(Box::new($expr))
+    };
 }
 
 #[derive(Debug)]

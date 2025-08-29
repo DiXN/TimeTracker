@@ -1,7 +1,7 @@
 #[derive(Debug, Clone)]
 pub enum ReceiveTypes {
-  LONGEST_SESSION,
-  DURATION,
-  LAUNCHES,
-  TIMELINE
+    LONGEST_SESSION,
+    DURATION,
+    LAUNCHES,
+    TIMELINE,
 }

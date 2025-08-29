@@ -28,11 +28,18 @@ mod hook;
 mod rpc;
 
 #[cfg(feature = "psql")]
-mod sql;
+mod seaorm_client;
 #[cfg(feature = "psql")]
-use crate::sql::PgClient;
+use crate::seaorm_client::SeaORMClient;
+
 #[cfg(feature = "psql")]
-mod sql_queries;
+mod entities;
+
+#[cfg(feature = "psql")]
+mod seaorm_queries;
+
+#[cfg(feature = "psql")]
+mod migration;
 
 mod native;
 use crate::native::{autostart, get_foreground_meta, init_tray};
@@ -122,13 +129,27 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
         _ => panic!("Missing credentials."),
     };
 
-    let pg_client = if let Some(db) = credentials.1 {
-        PgClient::new(&credentials.0, &db)
+    let db_url = if let Some(db) = credentials.1 {
+        format!("{}/{}", credentials.0, db)
     } else {
-        PgClient::new(&credentials.0, "time_tracker")
+        format!("{}/{}", credentials.0, "time_tracker")
     };
 
-    Ok(time_tracking::init(pg_client)?)
+    // Create a runtime for async operations
+    let rt = tokio::runtime::Runtime::new()?;
+
+    let seaorm_client = rt.block_on(async {
+        // Connect to the database
+        let client = SeaORMClient::new(&db_url).await?;
+
+        // Run migrations
+        use sea_orm_migration::MigratorTrait;
+        crate::migration::Migrator::up(&*client.connection, None).await?;
+
+        Ok::<SeaORMClient, Box<dyn Error>>(client)
+    })?;
+
+    Ok(time_tracking::init(seaorm_client)?)
 }
 
 #[cfg(not(any(feature = "firebase", feature = "psql")))]

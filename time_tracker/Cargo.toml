@@ -3,6 +3,7 @@ name = "time_tracker"
 version = "0.1.0"
 authors = ["Michael Kaltschmid <kaltschmidmichael@gmail.com>"]
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 libc = "0.2.66"
@@ -16,14 +17,18 @@ env_logger = "0.7.1"
 jsonrpc-core = "14.0.5"
 jsonrpc-http-server = "14.0.5"
 lazy_static = "1.5.0"
-postgres = { version = "0.15.2", features = ["with-chrono"], optional = true }
+# postgres = { version = "0.15.2", features = ["with-chrono"], optional = true }
 inputbot = "0.4.0"
 rodio = { version = "0.21.1", default-features = false, features = ["playback"] }
-barrel = { version = "0.6.5", features = ["pg"], optional = true }
+# barrel = { version = "0.6.5", features = ["pg"], optional = true }
 toml = "0.5.6"
 serde_derive = "1.0.219"
 rust-embed = "8.7.2"
 tungstenite = "0.27.0"
+
+# SeaORM dependencies
+sea-orm = { version = "0.12", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ], optional = true }
+sea-orm-migration = { version = "0.12", optional = true }
 
 [target.'cfg(not(windows))'.dependencies]
 zbus = { version = "3.14", default-features = false, features = ["tokio"] }
@@ -44,4 +49,4 @@ embed-resource = "1.3.2"
 
 [features]
 firebase = ["reqwest"]
-psql = ["postgres", "barrel"]
+psql = ["sea-orm", "sea-orm-migration"]
