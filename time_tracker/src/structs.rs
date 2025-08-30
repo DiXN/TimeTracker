@@ -335,7 +335,7 @@ impl WebSocketMessage {
 
     pub fn statistics_data(statistics_json: &str) -> Self {
         let payload = format!(r#"{{"statistics": {}}}"#, statistics_json);
-        WebSocketMessage::Statistics(payload)
+        WebSocketMessage::StatisticsData(payload)
     }
 
     pub fn to_json(&self) -> Result<String, serde_json::Error> {

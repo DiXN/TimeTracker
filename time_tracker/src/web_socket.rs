@@ -11,6 +11,7 @@ use crate::structs::{
 };
 use tungstenite::{Message, accept};
 use serde_json::Value as JsonValue;
+use chrono::TimeZone;
 
 // Helper function to convert JSON values to strings
 fn json_value_to_string(value: &JsonValue) -> String {
@@ -688,6 +689,11 @@ where
     let mut app_statistics = Vec::new();
 
     if let Some(rows) = apps_data.as_array() {
+        // Get today's date for comparison (outside the loop for efficiency)
+        let today = chrono::Utc::now().naive_utc().date();
+        let week_ago = today - chrono::Duration::days(7);
+        let month_ago = today - chrono::Duration::days(30);
+
         for row in rows {
             if let Some(obj) = row.as_object() {
                 let row_map: HashMap<String, String> = obj
@@ -696,15 +702,96 @@ where
                     .collect();
 
                 if let Some(app) = App::from_pg_row(&row_map) {
+                    // Get timeline data for this app for the last 30 days
+                    let timeline_data = client_guard
+                        .get_timeline_data(
+                            app.name.as_ref().map(|s| s.as_str()),
+                            30, // Get data for the last 30 days
+                        )
+                        .await?;
+
+                    // Process timeline data using functional patterns
+                    let (recent_sessions, today_duration, week_duration, month_duration, total_duration, session_count) =
+                        if let Some(timeline_rows) = timeline_data.as_array() {
+                            // Take the first 10 entries as recent sessions
+                            let recent_sessions: Vec<Timeline> = timeline_rows
+                                .iter()
+                                .take(10)
+                                .filter_map(|timeline_row| {
+                                    timeline_row.as_object().and_then(|timeline_obj| {
+                                        let timeline_row_map: HashMap<String, String> = timeline_obj
+                                            .iter()
+                                            .map(|(k, v)| (k.clone(), json_value_to_string(v)))
+                                            .collect();
+                                        Timeline::from_pg_row(&timeline_row_map)
+                                    })
+                                })
+                                .collect();
+
+                            // Calculate aggregations using functional approach
+                            let (total_duration, session_count, today_dur, week_dur, month_dur) =
+                                timeline_rows.iter().fold(
+                                    (0, 0, 0, 0, 0),
+                                    |(total, count, today_sum, week_sum, month_sum), timeline_row| {
+                                        if let Some(timeline_obj) = timeline_row.as_object() {
+                                            let timeline_row_map: HashMap<String, String> = timeline_obj
+                                                .iter()
+                                                .map(|(k, v)| (k.clone(), json_value_to_string(v)))
+                                                .collect();
+
+                                            if let Some(timeline_entry) = Timeline::from_pg_row(&timeline_row_map) {
+                                                let duration = timeline_entry.duration.unwrap_or(0);
+                                                let today_increment = timeline_entry.date
+                                                    .filter(|&date| date == today)
+                                                    .map(|_| duration)
+                                                    .unwrap_or(0);
+
+                                                let week_increment = timeline_entry.date
+                                                    .filter(|&date| date >= week_ago)
+                                                    .map(|_| duration)
+                                                    .unwrap_or(0);
+
+                                                let month_increment = timeline_entry.date
+                                                    .filter(|&date| date >= month_ago)
+                                                    .map(|_| duration)
+                                                    .unwrap_or(0);
+
+                                                (
+                                                    total + duration,
+                                                    count + 1,
+                                                    today_sum + today_increment,
+                                                    week_sum + week_increment,
+                                                    month_sum + month_increment
+                                                )
+                                            } else {
+                                                (total, count, today_sum, week_sum, month_sum)
+                                            }
+                                        } else {
+                                            (total, count, today_sum, week_sum, month_sum)
+                                        }
+                                    }
+                                );
+
+                            (recent_sessions, today_dur, week_dur, month_dur, total_duration, session_count)
+                        } else {
+                            (vec![], 0, 0, 0, 0, 0)
+                        };
+
+                    // Calculate average session length
+                    let average_session_length = if session_count > 0 {
+                        total_duration as f64 / session_count as f64
+                    } else {
+                        0.0
+                    };
+
                     let statistics = AppStatistics {
                         app: app.clone(),
                         total_duration: app.duration.unwrap_or(0),
-                        today_duration: 0, // Would need to calculate from timeline
-                        week_duration: 0,  // Would need to calculate from timeline
-                        month_duration: 0, // Would need to calculate from timeline
-                        average_session_length: app.duration.unwrap_or(0) as f64
-                            / app.launches.unwrap_or(1).max(1) as f64,
-                        recent_sessions: vec![], // Would need to query timeline
+                        today_duration,
+                        week_duration,
+                        month_duration,
+                        average_session_length,
+                        recent_sessions,
                     };
                     app_statistics.push(statistics);
                 }
