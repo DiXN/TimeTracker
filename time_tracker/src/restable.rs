@@ -80,4 +80,7 @@ pub trait Restable {
     ) -> Result<Value, Box<dyn Error>>;
     async fn is_checkpoint_active(&self, checkpoint_id: i32, app_id: i32)
     -> Result<bool, Box<dyn Error>>;
+
+    // Checkpoint stats method
+    async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>>;
 }

@@ -6,12 +6,11 @@ use std::time::Duration;
 
 use crate::restable::Restable;
 use crate::structs::{
-    ActiveCheckpoint, App, AppStatistics, Checkpoint, SessionCount, Timeline, TrackingStatus,
+    ActiveCheckpoint, App, AppStatistics, Checkpoint, CheckpointDuration, SessionCount, Timeline, TrackingStatus,
     WebSocketCommand, WebSocketMessage,
 };
 use tungstenite::{Message, accept};
 use serde_json::Value as JsonValue;
-use chrono::TimeZone;
 
 // Helper function to convert JSON values to strings
 fn json_value_to_string(value: &JsonValue) -> String {
@@ -149,6 +148,7 @@ where
         }
         WebSocketCommand::GetSessionCounts(payload) => handle_get_session_counts(client, &payload).await,
         WebSocketCommand::GetStatistics(payload) => handle_get_statistics(client, &payload).await,
+        WebSocketCommand::GetCheckpointStats(payload) => handle_get_checkpoint_stats(client, &payload).await,
     }
 }
 
@@ -825,6 +825,54 @@ where
 
     let statistics_json = serde_json::to_string(&app_statistics)?;
     let response = WebSocketMessage::statistics_data(&statistics_json);
+
+    Ok(response.to_json()?)
+}
+
+async fn handle_get_checkpoint_stats<T>(
+    client: &Arc<RwLock<T>>,
+    payload: &str,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    T: Restable + Sync + Send,
+{
+    let client_guard = client
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+
+    let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
+    let checkpoint_id = params
+        .get("checkpoint_id")
+        .and_then(|v| v.as_i64())
+        .map(|i| i as i32)
+        .ok_or("checkpoint_id parameter is required")?;
+
+    // Get checkpoint durations for the specified checkpoint ID
+    let durations_data = client_guard.get_checkpoint_durations_by_ids(&[checkpoint_id]).await?;
+
+    let mut durations = Vec::new();
+
+    if let Some(rows) = durations_data.as_array() {
+        for row in rows {
+            if let Some(obj) = row.as_object() {
+                let row_map: HashMap<String, String> = obj
+                    .iter()
+                    .map(|(k, v)| (k.clone(), json_value_to_string(v)))
+                    .collect();
+
+                if let Some(duration) = CheckpointDuration::from_pg_row(&row_map) {
+                    durations.push(duration);
+                }
+            }
+        }
+    }
+
+    let durations_json = serde_json::to_string(&durations)?;
+    let response_payload = format!(
+        r#"{{"checkpoint_id": {}, "durations": {}}}"#,
+        checkpoint_id, durations_json
+    );
+    let response = WebSocketMessage::checkpoint_stats(&response_payload);
 
     Ok(response.to_json()?)
 }

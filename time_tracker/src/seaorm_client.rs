@@ -518,4 +518,8 @@ impl Restable for SeaORMClient {
     ) -> Result<bool, Box<dyn Error>> {
         is_checkpoint_active(self, checkpoint_id, app_id).await
     }
+
+    async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>> {
+        get_checkpoint_durations_by_ids(self, checkpoint_ids).await
+    }
 }

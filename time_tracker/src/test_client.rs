@@ -206,6 +206,10 @@ impl Restable for TestClient {
     ) -> Result<bool, Box<dyn Error>> {
         self.client.is_checkpoint_active(checkpoint_id, app_id).await
     }
+
+    async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>> {
+        self.client.get_checkpoint_durations_by_ids(checkpoint_ids).await
+    }
 }
 
 #[cfg(test)]

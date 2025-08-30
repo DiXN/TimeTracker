@@ -489,6 +489,31 @@ pub async fn get_all_app_ids(client: &SeaORMClient) -> Result<Vec<i32>, Box<dyn 
         .into_tuple()
         .all(&*client.connection)
         .await?;
-
-    Ok(app_ids)
+Ok(app_ids)
 }
+
+pub async fn get_checkpoint_durations_by_ids(
+    client: &SeaORMClient,
+    checkpoint_ids: &[i32],
+) -> Result<Value, Box<dyn Error>> {
+    if checkpoint_ids.is_empty() {
+        return Ok(Value::Array(vec![]));
+    }
+
+    // Convert &[i32] to Vec<i32> for SeaORM
+    let ids: Vec<i32> = checkpoint_ids.to_vec();
+
+    let durations: Vec<checkpoint_durations::Model> = checkpoint_durations::Entity::find()
+        .filter(checkpoint_durations::Column::CheckpointId.is_in(ids))
+        .order_by_desc(checkpoint_durations::Column::LastUpdated)
+        .all(&*client.connection)
+        .await?;
+
+let json_values: Vec<Value> = durations
+    .into_iter()
+    .map(|duration| model_to_json_with_context(duration, "duration"))
+    .collect();
+
+Ok(Value::Array(json_values))
+}
+

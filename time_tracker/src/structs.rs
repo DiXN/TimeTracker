@@ -249,6 +249,8 @@ pub enum WebSocketMessage {
     SessionCountsData(String),
     #[serde(rename = "statistics")]
     Statistics(String),
+    #[serde(rename = "checkpoint_stats")]
+    CheckpointStats(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -280,6 +282,8 @@ pub enum WebSocketCommand {
     DeleteCheckpoint(String),
     #[serde(rename = "get_active_checkpoints")]
     GetActiveCheckpoints(String),
+    #[serde(rename = "get_checkpoint_stats")]
+    GetCheckpointStats(String),
 }
 
 impl WebSocketMessage {
@@ -336,6 +340,11 @@ impl WebSocketMessage {
     pub fn statistics_data(statistics_json: &str) -> Self {
         let payload = format!(r#"{{"statistics": {}}}"#, statistics_json);
         WebSocketMessage::StatisticsData(payload)
+    }
+
+    pub fn checkpoint_stats(stats_json: &str) -> Self {
+        // The stats_json should already be the properly formatted JSON object
+        WebSocketMessage::CheckpointStats(stats_json.to_string())
     }
 
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
