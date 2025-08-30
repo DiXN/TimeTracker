@@ -41,6 +41,10 @@ mod seaorm_queries;
 #[cfg(feature = "psql")]
 mod migration;
 
+// Test modules - always available for testing
+mod test_db;
+mod test_client;
+
 mod native;
 use crate::native::{autostart, init_tray};
 

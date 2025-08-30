@@ -1,4 +1,5 @@
 use std::{error::Error, sync::Arc, time::Duration};
+use async_trait::async_trait;
 
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DbErr, EntityTrait,
@@ -22,6 +23,18 @@ pub struct SeaORMClient {
 }
 
 impl SeaORMClient {
+    /// Create a new SeaORMClient with a provided database connection.
+    /// This constructor is useful for testing with in-memory databases.
+    ///
+    /// # Arguments
+    ///
+    /// * `connection` - An Arc-wrapped DatabaseConnection to use
+    pub fn new_with_connection(connection: Arc<DatabaseConnection>) -> Self {
+        Self { connection }
+    }
+}
+
+impl SeaORMClient {
     pub async fn new(url: &str) -> Result<Self, DbErr> {
         let mut opt = ConnectOptions::new(url.to_owned());
         opt.max_connections(100)
@@ -35,6 +48,7 @@ impl SeaORMClient {
     }
 }
 
+#[async_trait]
 impl Restable for SeaORMClient {
     async fn setup(&self) -> Result<(), Box<dyn Error>> {
         // Run database migrations
@@ -114,14 +128,17 @@ impl Restable for SeaORMClient {
 
     async fn put_data(&self, item: &str, product_name: &str) -> Result<Value, Box<dyn Error>> {
         // Get the next ID
-        let max_id: Option<i32> = apps::Entity::find()
+        let max_id_result = apps::Entity::find()
             .select_only()
             .column_as(apps::Column::Id.max(), "max_id")
-            .into_tuple()
+            .into_tuple::<Option<i32>>()
             .one(&*self.connection)
             .await?;
 
-        let next_id = max_id.map(|id| id + 1).unwrap_or(1);
+        let next_id = match max_id_result {
+            Some(Some(id)) => id + 1,
+            _ => 1, // Either no rows or max_id is NULL
+        };
 
         // Create the active model
         let app = apps::ActiveModel {
@@ -276,14 +293,17 @@ impl Restable for SeaORMClient {
                                 } else {
                                     // Create new entry
                                     // Get the next ID
-                                    let max_id: Option<i32> = timeline::Entity::find()
+                                    let max_id_result = timeline::Entity::find()
                                         .select_only()
                                         .column_as(timeline::Column::Id.max(), "max_id")
-                                        .into_tuple()
+                                        .into_tuple::<Option<i32>>()
                                         .one(&*self.connection)
                                         .await?;
 
-                                    let next_id = max_id.map(|id| id + 1).unwrap_or(1);
+                                    let next_id = match max_id_result {
+                                        Some(Some(id)) => id + 1,
+                                        _ => 1, // Either no rows or max_id is NULL
+                                    };
 
                                     let new_timeline = timeline::ActiveModel {
                                         id: ActiveValue::Set(next_id),

@@ -1,10 +1,12 @@
 use serde_json::Value;
 use std::error::Error;
+use async_trait::async_trait;
 
 use crossbeam_channel::Receiver;
 
 use crate::receive_types::ReceiveTypes;
 
+#[async_trait]
 pub trait Restable {
     async fn get_data(&self, item: &str) -> Result<Value, Box<dyn Error>>;
     async fn get_processes(&self) -> Result<Vec<String>, Box<dyn Error>>;
