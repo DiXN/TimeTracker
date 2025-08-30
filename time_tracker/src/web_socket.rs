@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::restable::Restable;
 use crate::structs::{
@@ -11,6 +11,68 @@ use crate::structs::{
 };
 use tungstenite::{Message, accept};
 use serde_json::Value as JsonValue;
+
+// Server state that holds both the client and tracking status
+pub struct ServerState<T: Restable> {
+    pub client: T,
+    tracking_status: TrackingStatus,
+}
+
+impl<T: Restable> ServerState<T> {
+    fn new(client: T) -> Self {
+        Self {
+            client,
+            tracking_status: TrackingStatus {
+                is_tracking: false,
+                is_paused: false,
+                current_app: None,
+                current_session_duration: 0,
+                session_start_time: None,
+                active_checkpoint_ids: vec![],
+            },
+        }
+    }
+
+    /// Update the tracking status to indicate a process is being tracked
+    fn start_tracking(&mut self, app_name: String, active_checkpoints: Vec<i32>) {
+        let start_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_else(|_| 0)
+            .to_string();
+
+        self.tracking_status = TrackingStatus {
+            is_tracking: true,
+            is_paused: false,
+            current_app: Some(app_name),
+            current_session_duration: 0,
+            session_start_time: Some(start_time),
+            active_checkpoint_ids: active_checkpoints,
+        };
+    }
+
+    /// Update the tracking status to indicate tracking has stopped
+    fn stop_tracking(&mut self) {
+        self.tracking_status = TrackingStatus {
+            is_tracking: false,
+            is_paused: false,
+            current_app: None,
+            current_session_duration: 0,
+            session_start_time: None,
+            active_checkpoint_ids: vec![],
+        };
+    }
+
+    /// Update the current session duration
+    fn update_session_duration(&mut self, duration: i32) {
+        self.tracking_status.current_session_duration = duration;
+    }
+
+    /// Get a copy of the current tracking status
+    fn get_tracking_status(&self) -> TrackingStatus {
+        self.tracking_status.clone()
+    }
+}
 
 // Helper function to convert JSON values to strings
 fn json_value_to_string(value: &JsonValue) -> String {
@@ -28,7 +90,8 @@ pub fn init_web_socket<T>(client: T)
 where
     T: Restable + Sync + Send + 'static,
 {
-    let client_arc = Arc::new(RwLock::new(client));
+    let server_state = ServerState::new(client);
+    let state_arc = Arc::new(RwLock::new(server_state));
 
     thread::spawn(move || {
         // Create a runtime for handling async operations
@@ -52,7 +115,7 @@ where
         loop {
             match server.accept() {
                 Ok((stream, _)) => {
-                    let client_clone = Arc::clone(&client_arc);
+                    let state_clone = Arc::clone(&state_arc);
                     let rt_clone = rt.handle().clone();
                     thread::spawn(move || {
                         let mut websocket = match accept(stream) {
@@ -85,7 +148,7 @@ where
 
                             // Handle the async message using our runtime
                             let response = rt_clone.block_on(async {
-                                handle_message(&msg, &client_clone).await
+                                handle_message(&msg, &state_clone).await
                             });
 
                             let response_text = match response {
@@ -120,7 +183,7 @@ where
 
 async fn handle_message<T>(
     msg: &Message,
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
@@ -129,36 +192,37 @@ where
     let command = WebSocketCommand::from_json(text)?;
 
     match command {
-        WebSocketCommand::GetApps(_) => handle_get_apps(client).await,
-        WebSocketCommand::GetTimeline(payload) => handle_get_timeline(client, &payload).await,
-        WebSocketCommand::GetAppByName(payload) => handle_get_app_by_name(client, &payload).await,
-        WebSocketCommand::AddProcess(payload) => handle_add_process(client, &payload).await,
-        WebSocketCommand::DeleteProcess(payload) => handle_delete_process(client, &payload).await,
-        WebSocketCommand::GetCheckpoints(payload) => handle_get_checkpoints(client, &payload).await,
-        WebSocketCommand::CreateCheckpoint(payload) => handle_create_checkpoint(client, &payload).await,
+        WebSocketCommand::GetApps(_) => handle_get_apps(state).await,
+        WebSocketCommand::GetTimeline(payload) => handle_get_timeline(state, &payload).await,
+        WebSocketCommand::GetAppByName(payload) => handle_get_app_by_name(state, &payload).await,
+        WebSocketCommand::AddProcess(payload) => handle_add_process(state, &payload).await,
+        WebSocketCommand::DeleteProcess(payload) => handle_delete_process(state, &payload).await,
+        WebSocketCommand::GetCheckpoints(payload) => handle_get_checkpoints(state, &payload).await,
+        WebSocketCommand::CreateCheckpoint(payload) => handle_create_checkpoint(state, &payload).await,
         WebSocketCommand::SetActiveCheckpoint(payload) => {
-            handle_set_active_checkpoint(client, &payload).await
+            handle_set_active_checkpoint(state, &payload).await
         }
-        WebSocketCommand::DeleteCheckpoint(payload) => handle_delete_checkpoint(client, &payload).await,
+        WebSocketCommand::DeleteCheckpoint(payload) => handle_delete_checkpoint(state, &payload).await,
         WebSocketCommand::GetActiveCheckpoints(payload) => {
-            handle_get_active_checkpoints(client, &payload).await
+            handle_get_active_checkpoints(state, &payload).await
         }
         WebSocketCommand::GetTrackingStatus(payload) => {
-            handle_get_tracking_status(client, &payload)
+            handle_get_tracking_status(state, &payload)
         }
-        WebSocketCommand::GetSessionCounts(payload) => handle_get_session_counts(client, &payload).await,
-        WebSocketCommand::GetStatistics(payload) => handle_get_statistics(client, &payload).await,
-        WebSocketCommand::GetCheckpointStats(payload) => handle_get_checkpoint_stats(client, &payload).await,
+        WebSocketCommand::GetSessionCounts(payload) => handle_get_session_counts(state, &payload).await,
+        WebSocketCommand::GetStatistics(payload) => handle_get_statistics(state, &payload).await,
+        WebSocketCommand::GetCheckpointStats(payload) => handle_get_checkpoint_stats(state, &payload).await,
     }
 }
 
-async fn handle_get_apps<T>(client: &Arc<RwLock<T>>) -> Result<String, Box<dyn std::error::Error>>
+async fn handle_get_apps<T>(state: &Arc<RwLock<ServerState<T>>>) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     let apps_data = client_guard.get_all_apps().await?;
     let mut apps = Vec::new();
@@ -185,15 +249,16 @@ where
 }
 
 async fn handle_get_timeline<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     _payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     // Get all timeline data without filtering (matching Dart implementation)
     let timeline_data = client_guard.get_all_timeline().await?;
@@ -257,15 +322,16 @@ where
 }
 
 async fn handle_get_app_by_name<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let app_name = params
         .get("name")
@@ -304,15 +370,16 @@ where
 }
 
 async fn handle_add_process<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let process_name = params
@@ -343,15 +410,16 @@ where
 }
 
 async fn handle_delete_process<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let process_name = params
@@ -378,15 +446,16 @@ where
 }
 
 async fn handle_get_checkpoints<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     let checkpoints_data = if payload.is_empty() {
         client_guard.get_all_checkpoints().await?
@@ -427,15 +496,16 @@ where
 }
 
 async fn handle_create_checkpoint<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let name = params
@@ -501,15 +571,16 @@ where
 }
 
 async fn handle_set_active_checkpoint<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let checkpoint_id = params
@@ -557,15 +628,16 @@ where
 }
 
 async fn handle_delete_checkpoint<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let checkpoint_id = params
@@ -593,15 +665,16 @@ where
 }
 
 async fn handle_get_active_checkpoints<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     let active_checkpoints_data = if payload.is_empty() {
         client_guard.get_all_active_checkpoints_table().await?
@@ -642,22 +715,16 @@ where
 }
 
 fn handle_get_tracking_status<T>(
-    _client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     _payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    // For now, return a default tracking status
-    // In a real implementation, this would track actual process states
-    let status = TrackingStatus {
-        is_tracking: false,
-        is_paused: false,
-        current_app: None,
-        current_session_duration: 0,
-        session_start_time: None,
-        active_checkpoint_ids: vec![],
-    };
+    let state_guard = state
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let status = &state_guard.tracking_status;
 
     let status_json = serde_json::to_string(&status)?;
     let response = WebSocketMessage::tracking_status(&status_json);
@@ -666,23 +733,25 @@ where
 }
 
 async fn handle_get_session_counts<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     _payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     // Get all app IDs and create session counts
     let app_ids = client_guard.get_all_app_ids().await?;
     // Use try_join_all to properly handle async operations in a loop
     let session_counts = futures_util::future::try_join_all(
         app_ids.into_iter().map(|app_id| async move {
-            let client_guard = client.read()
+            let state_guard = state.read()
                 .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+            let client_guard = &state_guard.client;
             let session_count_value = client_guard.get_session_count_for_app(app_id).await?;
             Ok::<SessionCount, Box<dyn std::error::Error>>(SessionCount {
                 app_id,
@@ -698,15 +767,16 @@ where
 }
 
 async fn handle_get_statistics<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     _payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     // Get all apps and create statistics
     let apps_data = client_guard.get_all_apps().await?;
@@ -830,15 +900,16 @@ where
 }
 
 async fn handle_get_checkpoint_stats<T>(
-    client: &Arc<RwLock<T>>,
+    state: &Arc<RwLock<ServerState<T>>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
-    let client_guard = client
+    let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+    let client_guard = &state_guard.client;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let checkpoint_id = params
