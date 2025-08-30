@@ -9,7 +9,7 @@ pub struct Model {
     pub name: String,
     pub description: Option<String>,
     pub created_at: Option<chrono::NaiveDateTime>,
-    pub valid_from: chrono::NaiveDateTime,
+    pub valid_from: Option<chrono::NaiveDateTime>,
     pub color: Option<String>,
     pub app_id: i32,
     pub is_active: Option<bool>,

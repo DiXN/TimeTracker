@@ -12,6 +12,7 @@ use crate::{restable::Restable, seaorm_client::SeaORMClient};
 /// A test client that can work with both production and test databases.
 /// This struct implements the same interface as SeaORMClient but allows
 /// injection of a test database connection for testing purposes.
+#[derive(Clone)]
 pub struct TestClient {
     /// The underlying client that handles database operations
     pub client: SeaORMClient,

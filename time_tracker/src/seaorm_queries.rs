@@ -45,23 +45,14 @@ pub async fn create_checkpoint(
     description: Option<&str>,
     app_id: i32,
 ) -> Result<Value, Box<dyn Error>> {
-    // Get the next ID
-    let max_id: Option<i32> = checkpoints::Entity::find()
-        .select_only()
-        .column_as(checkpoints::Column::Id.max(), "max_id")
-        .into_tuple()
-        .one(&*client.connection)
-        .await?;
-
-    let next_id = max_id.map(|id| id + 1).unwrap_or(1);
-
     // Create the active model
+    let now = chrono::Utc::now().naive_utc();
     let checkpoint = checkpoints::ActiveModel {
-        id: ActiveValue::Set(next_id),
+        id: ActiveValue::NotSet, // Let the database auto-generate the ID
         name: ActiveValue::Set(name.to_owned()),
         description: ActiveValue::Set(description.map(|s| s.to_owned())),
-        created_at: ActiveValue::Set(Some(chrono::Utc::now().naive_utc())),
-        valid_from: ActiveValue::Set(chrono::Utc::now().naive_utc()),
+        created_at: ActiveValue::Set(Some(now)),
+        valid_from: ActiveValue::Set(Some(now)),
         color: ActiveValue::Set(Some("#2196F3".to_owned())),
         app_id: ActiveValue::Set(app_id),
         is_active: ActiveValue::Set(Some(false)),
@@ -221,19 +212,9 @@ pub async fn create_timeline_checkpoint(
     timeline_id: i32,
     checkpoint_id: i32,
 ) -> Result<Value, Box<dyn Error>> {
-    // Get the next ID
-    let max_id: Option<i32> = timeline_checkpoints::Entity::find()
-        .select_only()
-        .column_as(timeline_checkpoints::Column::Id.max(), "max_id")
-        .into_tuple()
-        .one(&*client.connection)
-        .await?;
-
-    let next_id = max_id.map(|id| id + 1).unwrap_or(1);
-
     // Create the active model
     let timeline_checkpoint = timeline_checkpoints::ActiveModel {
-        id: ActiveValue::Set(next_id),
+        id: ActiveValue::NotSet, // Let the database auto-generate the ID
         timeline_id: ActiveValue::Set(timeline_id),
         checkpoint_id: ActiveValue::Set(checkpoint_id),
         created_at: ActiveValue::Set(Some(chrono::Utc::now().naive_utc())),
@@ -343,18 +324,8 @@ pub async fn update_checkpoint_duration(
         active_model.update(&*client.connection).await?;
     } else {
         // Insert new record
-        // Get the next ID
-        let max_id: Option<i32> = checkpoint_durations::Entity::find()
-            .select_only()
-            .column_as(checkpoint_durations::Column::Id.max(), "max_id")
-            .into_tuple()
-            .one(&*client.connection)
-            .await?;
-
-        let next_id = max_id.map(|id| id + 1).unwrap_or(1);
-
         let new_duration = checkpoint_durations::ActiveModel {
-            id: ActiveValue::Set(next_id),
+            id: ActiveValue::NotSet, // Let the database auto-generate the ID
             checkpoint_id: ActiveValue::Set(checkpoint_id),
             app_id: ActiveValue::Set(app_id),
             duration: ActiveValue::Set(Some(duration)),
@@ -408,19 +379,9 @@ pub async fn activate_checkpoint(
     checkpoint_id: i32,
     app_id: i32,
 ) -> Result<Value, Box<dyn Error>> {
-    // Get the next ID
-    let max_id: Option<i32> = active_checkpoints::Entity::find()
-        .select_only()
-        .column_as(active_checkpoints::Column::Id.max(), "max_id")
-        .into_tuple()
-        .one(&*client.connection)
-        .await?;
-
-    let next_id = max_id.map(|id| id + 1).unwrap_or(1);
-
     // Create the active model
     let active_checkpoint = active_checkpoints::ActiveModel {
-        id: ActiveValue::Set(next_id),
+        id: ActiveValue::NotSet, // Let the database auto-generate the ID
         checkpoint_id: ActiveValue::Set(checkpoint_id),
         activated_at: ActiveValue::Set(Some(chrono::Utc::now().naive_utc())),
         app_id: ActiveValue::Set(app_id),
@@ -489,7 +450,8 @@ pub async fn get_all_app_ids(client: &SeaORMClient) -> Result<Vec<i32>, Box<dyn 
         .into_tuple()
         .all(&*client.connection)
         .await?;
-Ok(app_ids)
+
+    Ok(app_ids)
 }
 
 pub async fn get_checkpoint_durations_by_ids(
@@ -509,11 +471,11 @@ pub async fn get_checkpoint_durations_by_ids(
         .all(&*client.connection)
         .await?;
 
-let json_values: Vec<Value> = durations
-    .into_iter()
-    .map(|duration| model_to_json_with_context(duration, "duration"))
-    .collect();
+    let json_values: Vec<Value> = durations
+        .into_iter()
+        .map(|duration| model_to_json_with_context(duration, "duration"))
+        .collect();
 
-Ok(Value::Array(json_values))
+    Ok(Value::Array(json_values))
 }
 

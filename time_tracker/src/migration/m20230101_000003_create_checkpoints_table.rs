@@ -15,6 +15,7 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(Checkpoints::Id)
                             .integer()
                             .not_null()
+                            .auto_increment()
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Checkpoints::Name).string().not_null())
