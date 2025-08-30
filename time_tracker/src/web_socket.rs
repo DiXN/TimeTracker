@@ -133,14 +133,8 @@ where
         WebSocketCommand::GetApps(_) => handle_get_apps(client).await,
         WebSocketCommand::GetTimeline(payload) => handle_get_timeline(client, &payload).await,
         WebSocketCommand::GetAppByName(payload) => handle_get_app_by_name(client, &payload).await,
-        WebSocketCommand::AddProcess(payload) => {
-            // handle_add_process is sync, so we don't await it
-            handle_add_process(client, &payload)
-        },
-        WebSocketCommand::DeleteProcess(payload) => {
-            // handle_delete_process is sync, so we don't await it
-            handle_delete_process(client, &payload)
-        },
+        WebSocketCommand::AddProcess(payload) => handle_add_process(client, &payload).await,
+        WebSocketCommand::DeleteProcess(payload) => handle_delete_process(client, &payload).await,
         WebSocketCommand::GetCheckpoints(payload) => handle_get_checkpoints(client, &payload).await,
         WebSocketCommand::CreateCheckpoint(payload) => handle_create_checkpoint(client, &payload).await,
         WebSocketCommand::SetActiveCheckpoint(payload) => {
@@ -309,48 +303,78 @@ where
     Ok(error_msg.to_json()?)
 }
 
-fn handle_add_process<T>(
-    _client: &Arc<RwLock<T>>,
+async fn handle_add_process<T>(
+    client: &Arc<RwLock<T>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
+    let client_guard = client
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
-    let _process_name = params
+    let process_name = params
         .get("process_name")
         .and_then(|v| v.as_str())
         .ok_or("process_name parameter is required")?;
-    let _path = params
+    let path = params
         .get("path")
         .and_then(|v| v.as_str())
         .ok_or("path parameter is required")?;
 
-    // Since this is a sync function calling an async function, we need to handle it properly
-    // For now, we'll return an error indicating this operation is not supported in this context
-    // In a real implementation, this would need to be restructured
-    let error_msg = WebSocketMessage::error("Add process operation not supported in this context");
-    Ok(error_msg.to_json()?)
+    match client_guard.put_data(process_name, path).await {
+        Ok(_) => {
+            let response = WebSocketMessage::success(&format!(
+                "Successfully added process: {}",
+                process_name
+            ));
+            Ok(response.to_json()?)
+        }
+        Err(e) => {
+            let error_msg = WebSocketMessage::error(&format!(
+                "Failed to add process '{}': {}",
+                process_name, e
+            ));
+            Ok(error_msg.to_json()?)
+        }
+    }
 }
 
-fn handle_delete_process<T>(
-    _client: &Arc<RwLock<T>>,
+async fn handle_delete_process<T>(
+    client: &Arc<RwLock<T>>,
     payload: &str,
 ) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
+    let client_guard = client
+        .read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
+
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
-    let _process_name = params
+    let process_name = params
         .get("process_name")
         .and_then(|v| v.as_str())
         .ok_or("process_name parameter is required")?;
 
-    // Since this is a sync function calling an async function, we need to handle it properly
-    // For now, we'll return an error indicating this operation is not supported in this context
-    // In a real implementation, this would need to be restructured
-    let error_msg = WebSocketMessage::error("Delete process operation not supported in this context");
-    Ok(error_msg.to_json()?)
+    match client_guard.delete_data(process_name).await {
+        Ok(_) => {
+            let response = WebSocketMessage::success(&format!(
+                "Successfully deleted process: {}",
+                process_name
+            ));
+            Ok(response.to_json()?)
+        }
+        Err(e) => {
+            let error_msg = WebSocketMessage::error(&format!(
+                "Failed to delete process '{}': {}",
+                process_name, e
+            ));
+            Ok(error_msg.to_json()?)
+        }
+    }
 }
 
 async fn handle_get_checkpoints<T>(
