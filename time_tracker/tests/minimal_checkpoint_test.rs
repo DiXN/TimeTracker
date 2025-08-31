@@ -6,9 +6,9 @@ mod tests {
         test_db::create_and_initialize_test_db,
         seaorm_client::SeaORMClient,
         seaorm_queries::create_checkpoint,
-        seaorm_queries::activate_checkpoint,
+        seaorm_queries::set_checkpoint_active,
         seaorm_queries::get_all_checkpoints,
-        seaorm_queries::get_all_active_checkpoints_table,
+        seaorm_queries::get_active_checkpoints,
         entities::apps,
         migration::Migrator,
     };
@@ -82,7 +82,7 @@ mod tests {
 
         // Try to activate the checkpoint directly using the activate_checkpoint function
         println!("Activating checkpoint using activate_checkpoint function...");
-        let activate_result = rt.block_on(activate_checkpoint(&client, checkpoint_id, 1));
+        let activate_result = rt.block_on(set_checkpoint_active(&client, checkpoint_id, true));
 
         match &activate_result {
             Ok(value) => {
@@ -97,7 +97,7 @@ mod tests {
                 }
 
                 // Let's also try to get all active checkpoints to see if any were activated
-                let all_active_checkpoints_result = rt.block_on(get_all_active_checkpoints_table(&client));
+                let all_active_checkpoints_result = rt.block_on(get_active_checkpoints(&client));
                 if let Ok(active_checkpoints_value) = all_active_checkpoints_result {
                     println!("All active checkpoints: {:?}", active_checkpoints_value);
                 }

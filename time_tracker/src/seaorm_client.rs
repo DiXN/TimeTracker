@@ -15,7 +15,13 @@ use crossbeam_channel::Receiver;
 use crate::entities::{apps, timeline};
 
 // Import our SeaORM query functions
-use crate::seaorm_queries::*;
+use crate::seaorm_queries::{
+    get_timeline_with_checkpoints,
+    get_session_count_for_app, get_all_app_ids, get_all_checkpoints, get_checkpoints_for_app,
+    create_checkpoint, set_checkpoint_active, delete_checkpoint, get_active_checkpoints,
+    get_active_checkpoints_for_app, get_all_timeline, get_checkpoint_durations_by_ids,
+    get_checkpoints_for_timeline, update_checkpoint_duration, get_checkpoint_durations, get_checkpoint_durations_for_app,
+};
 
 #[derive(Clone)]
 pub struct SeaORMClient {
@@ -310,6 +316,7 @@ impl Restable for SeaORMClient {
                                         date: ActiveValue::Set(today),
                                         duration: ActiveValue::Set(Some(1)),
                                         app_id: ActiveValue::Set(app_id),
+                                        checkpoint_id: ActiveValue::Set(None),
                                     };
 
                                     timeline::Entity::insert(new_timeline)
@@ -442,31 +449,23 @@ impl Restable for SeaORMClient {
         get_all_timeline(self).await
     }
 
+    async fn get_timeline_with_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
+        get_timeline_with_checkpoints(self).await
+    }
+
     async fn get_timeline_checkpoint_associations(&self) -> Result<Value, Box<dyn Error>> {
         get_timeline_checkpoint_associations(self).await
-    }
-
-    async fn create_timeline_checkpoint(
-        &self,
-        timeline_id: i32,
-        checkpoint_id: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        create_timeline_checkpoint(self, timeline_id, checkpoint_id).await
-    }
-
-    async fn delete_timeline_checkpoint(
-        &self,
-        timeline_id: i32,
-        checkpoint_id: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        delete_timeline_checkpoint(self, timeline_id, checkpoint_id).await
     }
 
     async fn get_timeline_checkpoints_for_timeline(
         &self,
         timeline_id: i32,
     ) -> Result<Value, Box<dyn Error>> {
-        get_timeline_checkpoints_for_timeline(self, timeline_id).await
+        get_checkpoints_for_timeline(self, timeline_id).await
+    }
+
+    async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>> {
+        get_checkpoint_durations_by_ids(self, checkpoint_ids).await
     }
 
     async fn get_checkpoint_durations(&self) -> Result<Value, Box<dyn Error>> {
@@ -485,41 +484,5 @@ impl Restable for SeaORMClient {
         sessions_count: i32,
     ) -> Result<Value, Box<dyn Error>> {
         update_checkpoint_duration(self, checkpoint_id, app_id, duration, sessions_count).await
-    }
-
-    async fn get_all_active_checkpoints_table(&self) -> Result<Value, Box<dyn Error>> {
-        get_all_active_checkpoints_table(self).await
-    }
-
-    async fn get_active_checkpoints_for_app_table(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
-        get_active_checkpoints_for_app_table(self, app_id).await
-    }
-
-    async fn activate_checkpoint(
-        &self,
-        checkpoint_id: i32,
-        app_id: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        activate_checkpoint(self, checkpoint_id, app_id).await
-    }
-
-    async fn deactivate_checkpoint(
-        &self,
-        checkpoint_id: i32,
-        app_id: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        deactivate_checkpoint(self, checkpoint_id, app_id).await
-    }
-
-    async fn is_checkpoint_active(
-        &self,
-        checkpoint_id: i32,
-        app_id: i32,
-    ) -> Result<bool, Box<dyn Error>> {
-        is_checkpoint_active(self, checkpoint_id, app_id).await
-    }
-
-    async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>> {
-        get_checkpoint_durations_by_ids(self, checkpoint_ids).await
     }
 }

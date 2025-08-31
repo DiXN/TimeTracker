@@ -20,12 +20,20 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Timeline::Date).date().not_null())
                     .col(ColumnDef::new(Timeline::Duration).integer())
                     .col(ColumnDef::new(Timeline::AppId).integer().not_null())
+                    .col(ColumnDef::new(Timeline::CheckpointId).integer().null())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_timeline_app_id")
                             .from(Timeline::Table, Timeline::AppId)
                             .to(Apps::Table, Apps::Id)
                             .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_timeline_checkpoint_id")
+                            .from(Timeline::Table, Timeline::CheckpointId)
+                            .to(Checkpoints::Table, Checkpoints::Id)
+                            .on_delete(ForeignKeyAction::SetNull),
                     )
                     .to_owned(),
             )
@@ -46,10 +54,17 @@ enum Timeline {
     Date,
     Duration,
     AppId,
+    CheckpointId,
 }
 
 #[derive(DeriveIden)]
 enum Apps {
+    Table,
+    Id,
+}
+
+#[derive(DeriveIden)]
+enum Checkpoints {
     Table,
     Id,
 }

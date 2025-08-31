@@ -5,7 +5,14 @@ pub struct Migration;
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
-    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+    async fn up(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
+        // This migration is now a no-op since we're removing timeline_checkpoints table
+        // The functionality is moved to the checkpoints table directly
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // This would recreate the timeline_checkpoints table if needed
         manager
             .create_table(
                 Table::create()
@@ -53,12 +60,6 @@ impl MigrationTrait for Migration {
                     )
                     .to_owned(),
             )
-            .await
-    }
-
-    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager
-            .drop_table(Table::drop().table(TimelineCheckpoints::Table).to_owned())
             .await
     }
 }

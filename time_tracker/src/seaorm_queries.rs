@@ -2,7 +2,7 @@ use std::error::Error;
 
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, RelationTrait,
+    QueryOrder, QuerySelect,
 };
 use serde_json::Value;
 
@@ -10,19 +10,10 @@ use crate::seaorm_client::SeaORMClient;
 
 // Import our entities
 use crate::entities::{
-    active_checkpoints, apps, checkpoint_durations, checkpoints, timeline, timeline_checkpoints,
+    apps, checkpoints, timeline,
 };
 
-// Helper function to convert SeaORM model to JSON
-fn model_to_json<T: serde::Serialize>(model: T) -> serde_json::Value {
-    match serde_json::to_value(model) {
-        Ok(val) => val,
-        Err(e) => {
-            eprintln!("Failed to serialize model: {}", e);
-            serde_json::Value::Null
-        }
-    }
-}
+
 
 // Helper function to convert SeaORM model to JSON with custom error context
 pub fn model_to_json_with_context<T: serde::Serialize>(
@@ -56,6 +47,10 @@ pub async fn create_checkpoint(
         color: ActiveValue::Set(Some("#2196F3".to_owned())),
         app_id: ActiveValue::Set(app_id),
         is_active: ActiveValue::Set(Some(false)),
+        duration: ActiveValue::Set(None),
+        sessions_count: ActiveValue::Set(None),
+        last_updated: ActiveValue::Set(Some(now)), // Set last_updated when creating
+        activated_at: ActiveValue::Set(None),
     };
 
     // Insert into database
@@ -80,6 +75,18 @@ pub async fn set_checkpoint_active(
 
     checkpoint.is_active = ActiveValue::Set(Some(is_active));
 
+    // Update activated_at timestamp when activating/deactivating
+    let now = chrono::Utc::now().naive_utc();
+    let activated_at = if is_active {
+        Some(now)
+    } else {
+        None
+    };
+    checkpoint.activated_at = ActiveValue::Set(activated_at);
+
+    // Also update last_updated timestamp
+    checkpoint.last_updated = ActiveValue::Set(Some(now));
+
     checkpoint.update(&*client.connection).await?;
 
     Ok(serde_json::json!({"success": "Checkpoint status updated successfully"}))
@@ -102,10 +109,10 @@ pub async fn get_all_checkpoints(client: &SeaORMClient) -> Result<Value, Box<dyn
         .all(&*client.connection)
         .await?;
 
-    let json_values: Vec<Value> = checkpoints
+    let json_values = checkpoints
         .into_iter()
         .map(|checkpoint| model_to_json_with_context(checkpoint, "checkpoint"))
-        .collect();
+        .collect::<Vec<Value>>();
 
     Ok(Value::Array(json_values))
 }
@@ -120,28 +127,25 @@ pub async fn get_checkpoints_for_app(
         .all(&*client.connection)
         .await?;
 
-    let json_values: Vec<Value> = checkpoints
+    let json_values = checkpoints
         .into_iter()
         .map(|checkpoint| model_to_json_with_context(checkpoint, "checkpoint"))
-        .collect();
+        .collect::<Vec<Value>>();
 
     Ok(Value::Array(json_values))
 }
 
 pub async fn get_active_checkpoints(client: &SeaORMClient) -> Result<Value, Box<dyn Error>> {
     let checkpoints = checkpoints::Entity::find()
-        .join(
-            sea_orm::JoinType::InnerJoin,
-            checkpoints::Relation::ActiveCheckpoints.def(),
-        )
+        .filter(checkpoints::Column::IsActive.eq(true))
         .order_by_desc(checkpoints::Column::Id)
         .all(&*client.connection)
         .await?;
 
-    let json_values: Vec<Value> = checkpoints
+    let json_values = checkpoints
         .into_iter()
         .map(|checkpoint| model_to_json_with_context(checkpoint, "checkpoint"))
-        .collect();
+        .collect::<Vec<Value>>();
 
     Ok(Value::Array(json_values))
 }
@@ -152,18 +156,15 @@ pub async fn get_active_checkpoints_for_app(
 ) -> Result<Value, Box<dyn Error>> {
     let checkpoints = checkpoints::Entity::find()
         .filter(checkpoints::Column::AppId.eq(app_id))
-        .join(
-            sea_orm::JoinType::InnerJoin,
-            checkpoints::Relation::ActiveCheckpoints.def(),
-        )
+        .filter(checkpoints::Column::IsActive.eq(true))
         .order_by_desc(checkpoints::Column::Id)
         .all(&*client.connection)
         .await?;
 
-    let json_values: Vec<Value> = checkpoints
+    let json_values = checkpoints
         .into_iter()
         .map(|checkpoint| model_to_json_with_context(checkpoint, "checkpoint"))
-        .collect();
+        .collect::<Vec<Value>>();
 
     Ok(Value::Array(json_values))
 }
@@ -175,258 +176,12 @@ pub async fn get_all_timeline(client: &SeaORMClient) -> Result<Value, Box<dyn Er
         .all(&*client.connection)
         .await?;
 
-    let json_values: Vec<Value> = timeline_entries
+    let json_values = timeline_entries
         .into_iter()
         .map(|entry| model_to_json_with_context(entry, "timeline entry"))
-        .collect();
+        .collect::<Vec<Value>>();
 
     Ok(Value::Array(json_values))
-}
-
-pub async fn get_timeline_checkpoint_associations(
-    client: &SeaORMClient,
-) -> Result<Value, Box<dyn Error>> {
-    let associations: Vec<timeline_checkpoints::Model> = timeline_checkpoints::Entity::find()
-        .order_by(
-            timeline_checkpoints::Column::TimelineId,
-            sea_orm::Order::Asc,
-        )
-        .order_by(
-            timeline_checkpoints::Column::CheckpointId,
-            sea_orm::Order::Asc,
-        )
-        .all(&*client.connection)
-        .await?;
-
-    let json_values: Vec<Value> = associations
-        .into_iter()
-        .map(|association| model_to_json_with_context(association, "association"))
-        .collect();
-
-    Ok(Value::Array(json_values))
-}
-
-// Timeline checkpoint queries
-pub async fn create_timeline_checkpoint(
-    client: &SeaORMClient,
-    timeline_id: i32,
-    checkpoint_id: i32,
-) -> Result<Value, Box<dyn Error>> {
-    // Create the active model
-    let timeline_checkpoint = timeline_checkpoints::ActiveModel {
-        id: ActiveValue::NotSet, // Let the database auto-generate the ID
-        timeline_id: ActiveValue::Set(timeline_id),
-        checkpoint_id: ActiveValue::Set(checkpoint_id),
-        created_at: ActiveValue::Set(Some(chrono::Utc::now().naive_utc())),
-    };
-
-    // Insert into database
-    timeline_checkpoints::Entity::insert(timeline_checkpoint)
-        .exec(&*client.connection)
-        .await?;
-
-    Ok(serde_json::json!({"success": "Timeline checkpoint association created"}))
-}
-
-pub async fn delete_timeline_checkpoint(
-    client: &SeaORMClient,
-    timeline_id: i32,
-    checkpoint_id: i32,
-) -> Result<Value, Box<dyn Error>> {
-    timeline_checkpoints::Entity::delete_many()
-        .filter(
-            timeline_checkpoints::Column::TimelineId
-                .eq(timeline_id)
-                .and(timeline_checkpoints::Column::CheckpointId.eq(checkpoint_id)),
-        )
-        .exec(&*client.connection)
-        .await?;
-
-    Ok(serde_json::json!({"success": "Timeline checkpoint association deleted"}))
-}
-
-pub async fn get_timeline_checkpoints_for_timeline(
-    client: &SeaORMClient,
-    timeline_id: i32,
-) -> Result<Value, Box<dyn Error>> {
-    let timeline_checkpoints: Vec<timeline_checkpoints::Model> =
-        timeline_checkpoints::Entity::find()
-            .filter(timeline_checkpoints::Column::TimelineId.eq(timeline_id))
-            .order_by_desc(timeline_checkpoints::Column::CreatedAt)
-            .all(&*client.connection)
-            .await?;
-
-    let json_values: Vec<Value> = timeline_checkpoints
-        .into_iter()
-        .map(|tc| model_to_json_with_context(tc, "timeline checkpoint"))
-        .collect();
-
-    Ok(Value::Array(json_values))
-}
-
-// Checkpoint duration queries
-pub async fn get_checkpoint_durations(client: &SeaORMClient) -> Result<Value, Box<dyn Error>> {
-    let durations: Vec<checkpoint_durations::Model> = checkpoint_durations::Entity::find()
-        .order_by_desc(checkpoint_durations::Column::LastUpdated)
-        .all(&*client.connection)
-        .await?;
-
-    let json_values: Vec<Value> = durations
-        .into_iter()
-        .map(|duration| model_to_json_with_context(duration, "duration"))
-        .collect();
-
-    Ok(Value::Array(json_values))
-}
-
-pub async fn get_checkpoint_durations_for_app(
-    client: &SeaORMClient,
-    app_id: i32,
-) -> Result<Value, Box<dyn Error>> {
-    let durations: Vec<checkpoint_durations::Model> = checkpoint_durations::Entity::find()
-        .filter(checkpoint_durations::Column::AppId.eq(app_id))
-        .order_by_desc(checkpoint_durations::Column::LastUpdated)
-        .all(&*client.connection)
-        .await?;
-
-    let json_values: Vec<Value> = durations
-        .into_iter()
-        .map(|duration| model_to_json_with_context(duration, "duration"))
-        .collect();
-
-    Ok(Value::Array(json_values))
-}
-
-pub async fn update_checkpoint_duration(
-    client: &SeaORMClient,
-    checkpoint_id: i32,
-    app_id: i32,
-    duration: i32,
-    sessions_count: i32,
-) -> Result<Value, Box<dyn Error>> {
-    // Try to find existing record
-    let existing = checkpoint_durations::Entity::find()
-        .filter(
-            checkpoint_durations::Column::CheckpointId
-                .eq(checkpoint_id)
-                .and(checkpoint_durations::Column::AppId.eq(app_id)),
-        )
-        .one(&*client.connection)
-        .await?;
-
-    if let Some(model) = existing {
-        // Update existing record
-        let mut active_model: checkpoint_durations::ActiveModel = model.into();
-        active_model.duration = ActiveValue::Set(Some(duration));
-        active_model.sessions_count = ActiveValue::Set(Some(sessions_count));
-        active_model.last_updated = ActiveValue::Set(Some(chrono::Utc::now().naive_utc()));
-
-        active_model.update(&*client.connection).await?;
-    } else {
-        // Insert new record
-        let new_duration = checkpoint_durations::ActiveModel {
-            id: ActiveValue::NotSet, // Let the database auto-generate the ID
-            checkpoint_id: ActiveValue::Set(checkpoint_id),
-            app_id: ActiveValue::Set(app_id),
-            duration: ActiveValue::Set(Some(duration)),
-            sessions_count: ActiveValue::Set(Some(sessions_count)),
-            last_updated: ActiveValue::Set(Some(chrono::Utc::now().naive_utc())),
-        };
-
-        checkpoint_durations::Entity::insert(new_duration)
-            .exec(&*client.connection)
-            .await?;
-    }
-
-    Ok(serde_json::json!({"success": "Checkpoint duration updated"}))
-}
-
-// Active checkpoint queries
-pub async fn get_all_active_checkpoints_table(client: &SeaORMClient) -> Result<Value, Box<dyn Error>> {
-    let active_checkpoints: Vec<active_checkpoints::Model> = active_checkpoints::Entity::find()
-        .order_by_desc(active_checkpoints::Column::ActivatedAt)
-            .all(&*client.connection)
-            .await?;
-
-    let json_values: Vec<Value> = active_checkpoints
-        .into_iter()
-        .map(|ac| model_to_json_with_context(ac, "active checkpoint"))
-        .collect();
-
-    Ok(Value::Array(json_values))
-}
-
-pub async fn get_active_checkpoints_for_app_table(
-    client: &SeaORMClient,
-    app_id: i32,
-) -> Result<Value, Box<dyn Error>> {
-    let active_checkpoints: Vec<active_checkpoints::Model> = active_checkpoints::Entity::find()
-        .filter(active_checkpoints::Column::AppId.eq(app_id))
-        .order_by_desc(active_checkpoints::Column::ActivatedAt)
-        .all(&*client.connection)
-        .await?;
-
-    let json_values: Vec<Value> = active_checkpoints
-        .into_iter()
-        .map(|ac| model_to_json_with_context(ac, "active checkpoint"))
-        .collect();
-
-    Ok(Value::Array(json_values))
-}
-
-pub async fn activate_checkpoint(
-    client: &SeaORMClient,
-    checkpoint_id: i32,
-    app_id: i32,
-) -> Result<Value, Box<dyn Error>> {
-    // Create the active model
-    let active_checkpoint = active_checkpoints::ActiveModel {
-        id: ActiveValue::NotSet, // Let the database auto-generate the ID
-        checkpoint_id: ActiveValue::Set(checkpoint_id),
-        activated_at: ActiveValue::Set(Some(chrono::Utc::now().naive_utc())),
-        app_id: ActiveValue::Set(app_id),
-    };
-
-    // Insert into database
-    active_checkpoints::Entity::insert(active_checkpoint)
-        .exec(&*client.connection)
-        .await?;
-
-    Ok(serde_json::json!({"success": "Checkpoint activated"}))
-}
-
-pub async fn deactivate_checkpoint(
-    client: &SeaORMClient,
-    checkpoint_id: i32,
-    app_id: i32,
-) -> Result<Value, Box<dyn Error>> {
-    active_checkpoints::Entity::delete_many()
-        .filter(
-            active_checkpoints::Column::CheckpointId
-                .eq(checkpoint_id)
-                .and(active_checkpoints::Column::AppId.eq(app_id)),
-        )
-        .exec(&*client.connection)
-        .await?;
-
-    Ok(serde_json::json!({"success": "Checkpoint deactivated"}))
-}
-
-pub async fn is_checkpoint_active(
-    client: &SeaORMClient,
-    checkpoint_id: i32,
-    app_id: i32,
-) -> Result<bool, Box<dyn Error>> {
-    let count = active_checkpoints::Entity::find()
-        .filter(
-            active_checkpoints::Column::CheckpointId
-                .eq(checkpoint_id)
-                .and(active_checkpoints::Column::AppId.eq(app_id)),
-        )
-        .count(&*client.connection)
-        .await?;
-
-    Ok(count > 0)
 }
 
 // Other utility functions
@@ -465,17 +220,204 @@ pub async fn get_checkpoint_durations_by_ids(
     // Convert &[i32] to Vec<i32> for SeaORM
     let ids: Vec<i32> = checkpoint_ids.to_vec();
 
-    let durations: Vec<checkpoint_durations::Model> = checkpoint_durations::Entity::find()
-        .filter(checkpoint_durations::Column::CheckpointId.is_in(ids))
-        .order_by_desc(checkpoint_durations::Column::LastUpdated)
+    let checkpoints: Vec<checkpoints::Model> = checkpoints::Entity::find()
+        .filter(checkpoints::Column::Id.is_in(ids))
+        .order_by_desc(checkpoints::Column::LastUpdated)
         .all(&*client.connection)
         .await?;
 
-    let json_values: Vec<Value> = durations
+    let json_values = checkpoints
         .into_iter()
-        .map(|duration| model_to_json_with_context(duration, "duration"))
-        .collect();
+        .map(|checkpoint| model_to_json_with_context(checkpoint, "checkpoint"))
+        .collect::<Vec<Value>>();
 
     Ok(Value::Array(json_values))
 }
+
+/// Get checkpoint associated with a timeline entry
+pub async fn get_checkpoint_for_timeline(
+    client: &SeaORMClient,
+    timeline_id: i32,
+) -> Result<Value, Box<dyn Error>> {
+    let timeline_entry: timeline::Model = timeline::Entity::find_by_id(timeline_id)
+        .one(&*client.connection)
+        .await?
+        .ok_or("Timeline entry not found")?;
+
+    if let Some(checkpoint_id) = timeline_entry.checkpoint_id {
+        let checkpoint: checkpoints::Model = checkpoints::Entity::find_by_id(checkpoint_id)
+            .one(&*client.connection)
+            .await?
+            .ok_or("Checkpoint not found")?;
+
+        let json_value = model_to_json_with_context(checkpoint, "checkpoint");
+        Ok(json_value)
+    } else {
+        Ok(serde_json::Value::Null)
+    }
+}
+
+/// Get all timeline entries associated with a checkpoint
+pub async fn get_timeline_entries_for_checkpoint(
+    client: &SeaORMClient,
+    checkpoint_id: i32,
+) -> Result<Value, Box<dyn Error>> {
+    let timeline_entries: Vec<timeline::Model> = timeline::Entity::find()
+        .filter(timeline::Column::CheckpointId.eq(checkpoint_id))
+        .all(&*client.connection)
+        .await?;
+
+    let json_values = timeline_entries
+        .into_iter()
+        .map(|entry| model_to_json_with_context(entry, "timeline entry"))
+        .collect::<Vec<Value>>();
+
+    Ok(Value::Array(json_values))
+}
+
+/// Get timeline entries with their associated checkpoints
+pub async fn get_timeline_with_checkpoints(client: &SeaORMClient) -> Result<Value, Box<dyn Error>> {
+    let timeline_entries: Vec<(timeline::Model, Option<checkpoints::Model>)> = timeline::Entity::find()
+        .order_by_desc(timeline::Column::Date)
+        .find_also_related(checkpoints::Entity)
+        .all(&*client.connection)
+        .await?;
+
+    let json_values = timeline_entries
+        .into_iter()
+        .map(|(timeline, checkpoint)| {
+            let mut timeline_json = serde_json::to_value(&timeline).unwrap_or(serde_json::Value::Null);
+            if let Some(checkpoint_model) = checkpoint {
+                if let Some(obj) = timeline_json.as_object_mut() {
+                    obj.insert("checkpoint".to_string(), model_to_json_with_context(checkpoint_model, "checkpoint"));
+                }
+            }
+            timeline_json
+        })
+        .collect::<Vec<Value>>();
+
+    Ok(Value::Array(json_values))
+}
+
+// Function to get checkpoints associated with timeline entries
+pub async fn get_checkpoints_for_timeline(
+    client: &SeaORMClient,
+    timeline_id: i32,
+) -> Result<Value, Box<dyn Error>> {
+    let timeline_entry: timeline::Model = timeline::Entity::find_by_id(timeline_id)
+        .one(&*client.connection)
+        .await?
+        .ok_or("Timeline entry not found")?;
+
+    if let Some(checkpoint_id) = timeline_entry.checkpoint_id {
+        let checkpoint: checkpoints::Model = checkpoints::Entity::find_by_id(checkpoint_id)
+            .one(&*client.connection)
+            .await?
+            .ok_or("Checkpoint not found")?;
+
+        let json_value = model_to_json_with_context(checkpoint, "checkpoint");
+        Ok(json_value)
+    } else {
+        Ok(serde_json::Value::Null)
+    }
+}
+
+
+/// Get timeline checkpoint associations
+pub async fn get_timeline_checkpoint_associations(client: &SeaORMClient) -> Result<Value, Box<dyn Error>> {
+    // In the new data model, timeline entries have a direct checkpoint_id reference
+    // So we need to find timeline entries that have a checkpoint_id and return those associations
+    let timeline_entries: Vec<timeline::Model> = timeline::Entity::find()
+        .filter(timeline::Column::CheckpointId.is_not_null())
+        .all(&*client.connection)
+        .await?;
+
+    let json_values = timeline_entries
+        .into_iter()
+        .map(|timeline| {
+            serde_json::json!({
+                "timeline_id": timeline.id,
+                "checkpoint_id": timeline.checkpoint_id,
+                "date": timeline.date,
+            })
+        })
+        .collect::<Vec<Value>>();
+
+    Ok(Value::Array(json_values))
+}
+
+/// Update checkpoint duration
+pub async fn update_checkpoint_duration(
+    client: &SeaORMClient,
+    checkpoint_id: i32,
+    _app_id: i32, // App ID is not needed in the new model since checkpoint_id is unique
+    duration: i32,
+    sessions_count: i32,
+) -> Result<Value, Box<dyn Error>> {
+    // In the new data model, we update the checkpoint directly
+    let checkpoint = checkpoints::Entity::find_by_id(checkpoint_id)
+        .one(&*client.connection)
+        .await?
+        .ok_or("Checkpoint not found")?;
+
+    let mut checkpoint_active: checkpoints::ActiveModel = checkpoint.into();
+    checkpoint_active.duration = ActiveValue::Set(Some(duration));
+    checkpoint_active.sessions_count = ActiveValue::Set(Some(sessions_count));
+    checkpoint_active.last_updated = ActiveValue::Set(Some(chrono::Utc::now().naive_utc()));
+    checkpoint_active.update(&*client.connection).await?;
+
+    Ok(serde_json::json!({"success": "Checkpoint duration updated successfully"}))
+}
+
+/// Get checkpoint durations
+pub async fn get_checkpoint_durations(client: &SeaORMClient) -> Result<Value, Box<dyn Error>> {
+    // In the new data model, checkpoint durations are stored directly in the checkpoints table
+    let checkpoints: Vec<checkpoints::Model> = checkpoints::Entity::find()
+        .filter(checkpoints::Column::Duration.is_not_null())
+        .all(&*client.connection)
+        .await?;
+
+    let json_values = checkpoints
+        .into_iter()
+        .map(|checkpoint| {
+            serde_json::json!({
+                "checkpoint_id": checkpoint.id,
+                "duration": checkpoint.duration,
+                "sessions_count": checkpoint.sessions_count,
+                "last_updated": checkpoint.last_updated,
+            })
+        })
+        .collect::<Vec<Value>>();
+
+    Ok(Value::Array(json_values))
+}
+
+/// Get checkpoint durations for a specific app
+pub async fn get_checkpoint_durations_for_app(
+    client: &SeaORMClient,
+    app_id: i32,
+) -> Result<Value, Box<dyn Error>> {
+    // In the new data model, checkpoint durations are stored directly in the checkpoints table
+    let checkpoints: Vec<checkpoints::Model> = checkpoints::Entity::find()
+        .filter(checkpoints::Column::AppId.eq(app_id))
+        .filter(checkpoints::Column::Duration.is_not_null())
+        .all(&*client.connection)
+        .await?;
+
+    let json_values = checkpoints
+        .into_iter()
+        .map(|checkpoint| {
+            serde_json::json!({
+                "checkpoint_id": checkpoint.id,
+                "duration": checkpoint.duration,
+                "sessions_count": checkpoint.sessions_count,
+                "last_updated": checkpoint.last_updated,
+            })
+        })
+        .collect::<Vec<Value>>();
+
+    Ok(Value::Array(json_values))
+}
+
+
 

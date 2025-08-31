@@ -15,7 +15,6 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(Checkpoints::Id)
                             .integer()
                             .not_null()
-                            .auto_increment()
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Checkpoints::Name).string().not_null())
@@ -29,7 +28,7 @@ impl MigrationTrait for Migration {
                     .col(
                         ColumnDef::new(Checkpoints::ValidFrom)
                             .timestamp()
-                            .not_null()
+                            .null()
                             .default(Expr::current_timestamp()),
                     )
                     .col(ColumnDef::new(Checkpoints::Color).string().null())
@@ -39,6 +38,19 @@ impl MigrationTrait for Migration {
                             .boolean()
                             .null()
                             .default(false),
+                    )
+                    .col(ColumnDef::new(Checkpoints::Duration).integer().null())
+                    .col(ColumnDef::new(Checkpoints::SessionsCount).integer().null())
+                    .col(
+                        ColumnDef::new(Checkpoints::LastUpdated)
+                            .timestamp()
+                            .null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(Checkpoints::ActivatedAt)
+                            .timestamp()
+                            .null(),
                     )
                     .foreign_key(
                         ForeignKey::create()
@@ -70,6 +82,10 @@ enum Checkpoints {
     Color,
     AppId,
     IsActive,
+    Duration,
+    SessionsCount,
+    LastUpdated,
+    ActivatedAt,
 }
 
 #[derive(DeriveIden)]

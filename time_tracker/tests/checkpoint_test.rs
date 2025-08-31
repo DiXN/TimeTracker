@@ -119,7 +119,7 @@ mod tests {
         println!("Checkpoint ID: {}", checkpoint_id);
 
         // Activate the checkpoint
-        let activate_result = rt.block_on(client.activate_checkpoint(checkpoint_id, app_id));
+        let activate_result = rt.block_on(client.set_checkpoint_active(checkpoint_id, true));
         assert!(activate_result.is_ok());
         println!("Checkpoint activated");
 
@@ -187,7 +187,7 @@ mod tests {
         }
 
         // Get checkpoint durations
-        let checkpoint_durations_before_update = rt.block_on(client.get_checkpoint_durations_for_app(app_id));
+        let checkpoint_durations_before_update = rt.block_on(client.get_checkpoint_durations_by_ids(&[checkpoint_id]));
         if let Ok(checkpoint_durations_value) = checkpoint_durations_before_update {
             if let Some(checkpoint_durations_array) = checkpoint_durations_value.as_array() {
                 println!("Number of checkpoint durations before update: {}", checkpoint_durations_array.len());

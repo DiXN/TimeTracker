@@ -131,31 +131,15 @@ impl Restable for TestClient {
         self.client.get_all_timeline().await
     }
 
-    async fn get_timeline_checkpoint_associations(&self) -> Result<Value, Box<dyn Error>> {
-        self.client.get_timeline_checkpoint_associations().await
-    }
-
-    async fn create_timeline_checkpoint(
-        &self,
-        timeline_id: i32,
-        checkpoint_id: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        self.client.create_timeline_checkpoint(timeline_id, checkpoint_id).await
-    }
-
-    async fn delete_timeline_checkpoint(
-        &self,
-        timeline_id: i32,
-        checkpoint_id: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        self.client.delete_timeline_checkpoint(timeline_id, checkpoint_id).await
-    }
-
     async fn get_timeline_checkpoints_for_timeline(
         &self,
         timeline_id: i32,
     ) -> Result<Value, Box<dyn Error>> {
         self.client.get_timeline_checkpoints_for_timeline(timeline_id).await
+    }
+
+    async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>> {
+        self.client.get_checkpoint_durations_by_ids(checkpoint_ids).await
     }
 
     async fn get_checkpoint_durations(&self) -> Result<Value, Box<dyn Error>> {
@@ -176,40 +160,8 @@ impl Restable for TestClient {
         self.client.update_checkpoint_duration(checkpoint_id, app_id, duration, sessions_count).await
     }
 
-    async fn get_all_active_checkpoints_table(&self) -> Result<Value, Box<dyn Error>> {
-        self.client.get_all_active_checkpoints_table().await
-    }
-
-    async fn get_active_checkpoints_for_app_table(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
-        self.client.get_active_checkpoints_for_app_table(app_id).await
-    }
-
-    async fn activate_checkpoint(
-        &self,
-        checkpoint_id: i32,
-        app_id: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        self.client.activate_checkpoint(checkpoint_id, app_id).await
-    }
-
-    async fn deactivate_checkpoint(
-        &self,
-        checkpoint_id: i32,
-        app_id: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        self.client.deactivate_checkpoint(checkpoint_id, app_id).await
-    }
-
-    async fn is_checkpoint_active(
-        &self,
-        checkpoint_id: i32,
-        app_id: i32,
-    ) -> Result<bool, Box<dyn Error>> {
-        self.client.is_checkpoint_active(checkpoint_id, app_id).await
-    }
-
-    async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>> {
-        self.client.get_checkpoint_durations_by_ids(checkpoint_ids).await
+    async fn get_timeline_with_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
+        self.client.get_timeline_with_checkpoints().await
     }
 }
 

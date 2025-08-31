@@ -41,22 +41,6 @@ pub trait Restable {
     async fn get_active_checkpoints_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>>;
     async fn get_timeline_checkpoint_associations(&self) -> Result<Value, Box<dyn Error>>;
 
-    // Timeline checkpoint methods
-    async fn create_timeline_checkpoint(
-        &self,
-        timeline_id: i32,
-        checkpoint_id: i32,
-    ) -> Result<Value, Box<dyn Error>>;
-    async fn delete_timeline_checkpoint(
-        &self,
-        timeline_id: i32,
-        checkpoint_id: i32,
-    ) -> Result<Value, Box<dyn Error>>;
-    async fn get_timeline_checkpoints_for_timeline(
-        &self,
-        timeline_id: i32,
-    ) -> Result<Value, Box<dyn Error>>;
-
     // Checkpoint duration methods
     async fn get_checkpoint_durations(&self) -> Result<Value, Box<dyn Error>>;
     async fn get_checkpoint_durations_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>>;
@@ -68,19 +52,9 @@ pub trait Restable {
         sessions_count: i32,
     ) -> Result<Value, Box<dyn Error>>;
 
-    // Active checkpoint table methods
-    async fn get_all_active_checkpoints_table(&self) -> Result<Value, Box<dyn Error>>;
-    async fn get_active_checkpoints_for_app_table(&self, app_id: i32) -> Result<Value, Box<dyn Error>>;
-    async fn activate_checkpoint(&self, checkpoint_id: i32, app_id: i32)
-    -> Result<Value, Box<dyn Error>>;
-    async fn deactivate_checkpoint(
-        &self,
-        checkpoint_id: i32,
-        app_id: i32,
-    ) -> Result<Value, Box<dyn Error>>;
-    async fn is_checkpoint_active(&self, checkpoint_id: i32, app_id: i32)
-    -> Result<bool, Box<dyn Error>>;
-
     // Checkpoint stats method
     async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>>;
+
+    // Timeline with checkpoints method
+    async fn get_timeline_with_checkpoints(&self) -> Result<Value, Box<dyn Error>>;
 }

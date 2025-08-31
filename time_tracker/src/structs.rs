@@ -58,36 +58,17 @@ pub struct Checkpoint {
     pub color: Option<String>,
     pub app_id: i32,
     pub is_active: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TimelineCheckpoint {
-    pub id: i32,
-    pub timeline_id: i32,
-    pub checkpoint_id: i32,
-    #[serde(serialize_with = "serialize_optional_datetime")]
-    pub created_at: Option<NaiveDateTime>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CheckpointDuration {
-    pub id: i32,
-    pub checkpoint_id: i32,
-    pub app_id: i32,
+    // Consolidated fields from other tables
+    pub timeline_id: Option<i32>,
     pub duration: Option<i32>,
     pub sessions_count: Option<i32>,
     #[serde(serialize_with = "serialize_optional_datetime")]
     pub last_updated: Option<NaiveDateTime>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActiveCheckpoint {
-    pub id: i32,
-    pub checkpoint_id: i32,
     #[serde(serialize_with = "serialize_optional_datetime")]
     pub activated_at: Option<NaiveDateTime>,
-    pub app_id: i32,
 }
+
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackingStatus {
@@ -143,61 +124,16 @@ impl Checkpoint {
             color: None,
             app_id,
             is_active: None,
+            timeline_id: None,
+            duration: None,
+            sessions_count: None,
+            last_updated: None,
+            activated_at: None,
         }
     }
 }
 
-impl TimelineCheckpoint {
-    pub fn new(
-        id: i32,
-        timeline_id: i32,
-        checkpoint_id: i32,
-        created_at: Option<NaiveDateTime>,
-    ) -> Self {
-        TimelineCheckpoint {
-            id,
-            timeline_id,
-            checkpoint_id,
-            created_at,
-        }
-    }
-}
 
-impl CheckpointDuration {
-    pub fn new(
-        id: i32,
-        checkpoint_id: i32,
-        app_id: i32,
-        duration: Option<i32>,
-        sessions_count: Option<i32>,
-        last_updated: Option<NaiveDateTime>,
-    ) -> Self {
-        CheckpointDuration {
-            id,
-            checkpoint_id,
-            app_id,
-            duration,
-            sessions_count,
-            last_updated,
-        }
-    }
-}
-
-impl ActiveCheckpoint {
-    pub fn new(
-        id: i32,
-        checkpoint_id: i32,
-        activated_at: Option<NaiveDateTime>,
-        app_id: i32,
-    ) -> Self {
-        ActiveCheckpoint {
-            id,
-            checkpoint_id,
-            activated_at,
-            app_id,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppsResponse {
@@ -461,51 +397,11 @@ impl Checkpoint {
             .filter(|s| !s.is_empty())
             .and_then(|s| s.parse().ok());
 
-        Some(Checkpoint {
-            id,
-            name: parse_optional_string("name"),
-            description: parse_optional_string("description"),
-            created_at: parse_optional_datetime("created_at"),
-            valid_from: parse_optional_datetime("valid_from"),
-            color: parse_optional_string("color"),
-            app_id: app_id.unwrap_or_default(),
-            is_active,
-        })
-    }
-}
-
-impl TimelineCheckpoint {
-    pub fn from_pg_row(row_data: &HashMap<String, String>) -> Option<Self> {
-        let id = row_data.get("id")?.parse().ok()?;
-        let timeline_id = row_data.get("timeline_id")?.parse().ok()?;
-        let checkpoint_id = row_data.get("checkpoint_id")?.parse().ok()?;
-
-        let created_at = row_data
-            .get("created_at")
+        // Parse additional fields for consolidated table
+        let timeline_id = row_data
+            .get("timeline_id")
             .filter(|s| !s.is_empty())
-            .and_then(|datetime_str| {
-                // Try multiple formats to handle different datetime representations
-                NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
-                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S"))
-                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S%.f"))
-                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S"))
-                    .ok()
-            });
-
-        Some(TimelineCheckpoint {
-            id,
-            timeline_id,
-            checkpoint_id,
-            created_at,
-        })
-    }
-}
-
-impl CheckpointDuration {
-    pub fn from_pg_row(row_data: &HashMap<String, String>) -> Option<Self> {
-        let id = row_data.get("id")?.parse().ok()?;
-        let checkpoint_id = row_data.get("checkpoint_id")?.parse().ok()?;
-        let app_id = row_data.get("app_id")?.parse().ok()?;
+            .and_then(|s| s.parse().ok());
 
         let duration = row_data
             .get("duration")
@@ -517,52 +413,22 @@ impl CheckpointDuration {
             .filter(|s| !s.is_empty())
             .and_then(|s| s.parse().ok());
 
-        let last_updated = row_data
-            .get("last_updated")
-            .filter(|s| !s.is_empty())
-            .and_then(|datetime_str| {
-                // Try multiple formats to handle different datetime representations
-                NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
-                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S"))
-                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S%.f"))
-                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S"))
-                    .ok()
-            });
-
-        Some(CheckpointDuration {
+        Some(Checkpoint {
             id,
-            checkpoint_id,
-            app_id,
+            name: parse_optional_string("name"),
+            description: parse_optional_string("description"),
+            created_at: parse_optional_datetime("created_at"),
+            valid_from: parse_optional_datetime("valid_from"),
+            color: parse_optional_string("color"),
+            app_id: app_id.unwrap_or_default(),
+            is_active,
+            timeline_id,
             duration,
             sessions_count,
-            last_updated,
+            last_updated: parse_optional_datetime("last_updated"),
+            activated_at: parse_optional_datetime("activated_at"),
         })
     }
 }
 
-impl ActiveCheckpoint {
-    pub fn from_pg_row(row_data: &HashMap<String, String>) -> Option<Self> {
-        let id = row_data.get("id")?.parse().ok()?;
-        let checkpoint_id = row_data.get("checkpoint_id")?.parse().ok()?;
-        let app_id = row_data.get("app_id")?.parse().ok()?;
 
-        let activated_at = row_data
-            .get("activated_at")
-            .filter(|s| !s.is_empty())
-            .and_then(|datetime_str| {
-                // Try multiple formats to handle different datetime representations
-                NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S%.f")
-                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S"))
-                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S%.f"))
-                    .or_else(|_| NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S"))
-                    .ok()
-            });
-
-        Some(ActiveCheckpoint {
-            id,
-            checkpoint_id,
-            activated_at,
-            app_id,
-        })
-    }
-}

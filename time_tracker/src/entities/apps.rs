@@ -20,10 +20,6 @@ pub enum Relation {
     Timeline,
     #[sea_orm(has_many = "super::checkpoints::Entity")]
     Checkpoints,
-    #[sea_orm(has_many = "super::checkpoint_durations::Entity")]
-    CheckpointDurations,
-    #[sea_orm(has_many = "super::active_checkpoints::Entity")]
-    ActiveCheckpoints,
 }
 
 impl Related<super::timeline::Entity> for Entity {
@@ -35,18 +31,6 @@ impl Related<super::timeline::Entity> for Entity {
 impl Related<super::checkpoints::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Checkpoints.def()
-    }
-}
-
-impl Related<super::checkpoint_durations::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::CheckpointDurations.def()
-    }
-}
-
-impl Related<super::active_checkpoints::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::ActiveCheckpoints.def()
     }
 }
 

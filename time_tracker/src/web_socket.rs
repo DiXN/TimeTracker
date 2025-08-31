@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::restable::Restable;
 use crate::structs::{
-    ActiveCheckpoint, App, AppStatistics, Checkpoint, CheckpointDuration, SessionCount, Timeline, TrackingStatus,
+    App, AppStatistics, Checkpoint, SessionCount, Timeline, TrackingStatus,
     WebSocketCommand, WebSocketMessage,
 };
 use tungstenite::{Message, accept};
@@ -261,61 +261,9 @@ where
     let client_guard = &state_guard.client;
 
     // Get all timeline data without filtering (matching Dart implementation)
-    let timeline_data = client_guard.get_all_timeline().await?;
-    let associations_data = client_guard.get_timeline_checkpoint_associations().await?;
+    let timeline_data = client_guard.get_timeline_with_checkpoints().await?;
 
-    // Build associations map
-    let mut associations_map: HashMap<i32, Vec<i32>> = HashMap::new();
-    if let Some(rows) = associations_data.as_array() {
-        for row in rows {
-            if let Some(obj) = row.as_object()
-                && let (Some(timeline_id), Some(checkpoint_id)) = (
-                    obj.get("timeline_id")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| s.parse::<i32>().ok()),
-                    obj.get("checkpoint_id")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| s.parse::<i32>().ok()),
-                )
-            {
-                associations_map
-                    .entry(timeline_id)
-                    .or_default()
-                    .push(checkpoint_id);
-            }
-        }
-    }
-
-    let mut enhanced_timeline = Vec::new();
-
-    if let Some(rows) = timeline_data.as_array() {
-        for row in rows {
-            if let Some(obj) = row.as_object() {
-                let row_map: HashMap<String, String> = obj
-                    .iter()
-                    .map(|(k, v)| (k.clone(), json_value_to_string(v)))
-                    .collect();
-
-                if let Some(timeline_entry) = Timeline::from_pg_row(&row_map) {
-                    // Create enhanced timeline with checkpoint associations
-                    let mut timeline_json = serde_json::to_value(&timeline_entry)?;
-                    if let Some(obj) = timeline_json.as_object_mut() {
-                        let empty_vec = vec![];
-                        let associations = associations_map
-                            .get(&timeline_entry.id)
-                            .unwrap_or(&empty_vec);
-                        obj.insert(
-                            "checkpoint_associations".to_string(),
-                            serde_json::to_value(associations)?,
-                        );
-                    }
-                    enhanced_timeline.push(timeline_json);
-                }
-            }
-        }
-    }
-
-    let timeline_json = serde_json::to_string(&enhanced_timeline)?;
+    let timeline_json = serde_json::to_string(&timeline_data)?;
     let response = WebSocketMessage::timeline_data(&timeline_json);
 
     Ok(response.to_json()?)
@@ -599,9 +547,9 @@ where
         .unwrap_or(false);
 
     let result = if is_active {
-        client_guard.activate_checkpoint(checkpoint_id, app_id).await
+        client_guard.set_checkpoint_active(checkpoint_id, true).await
     } else {
-        client_guard.deactivate_checkpoint(checkpoint_id, app_id).await
+        client_guard.set_checkpoint_active(checkpoint_id, false).await
     };
 
     match result {
@@ -677,7 +625,7 @@ where
     let client_guard = &state_guard.client;
 
     let active_checkpoints_data = if payload.is_empty() {
-        client_guard.get_all_active_checkpoints_table().await?
+        client_guard.get_active_checkpoints().await?
     } else {
         let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
         if let Some(app_id) = params
@@ -685,9 +633,9 @@ where
             .and_then(|v| v.as_i64())
             .map(|i| i as i32)
         {
-            client_guard.get_active_checkpoints_for_app_table(app_id).await?
+            client_guard.get_active_checkpoints_for_app(app_id).await?
         } else {
-            client_guard.get_all_active_checkpoints_table().await?
+            client_guard.get_active_checkpoints().await?
         }
     };
 
@@ -701,8 +649,8 @@ where
                     .map(|(k, v)| (k.clone(), json_value_to_string(v)))
                     .collect();
 
-                if let Some(active_checkpoint) = ActiveCheckpoint::from_pg_row(&row_map) {
-                    active_checkpoints.push(active_checkpoint);
+                if let Some(checkpoint) = Checkpoint::from_pg_row(&row_map) {
+                    active_checkpoints.push(checkpoint);
                 }
             }
         }
@@ -931,8 +879,8 @@ where
                     .map(|(k, v)| (k.clone(), json_value_to_string(v)))
                     .collect();
 
-                if let Some(duration) = CheckpointDuration::from_pg_row(&row_map) {
-                    durations.push(duration);
+                if let Some(checkpoint) = Checkpoint::from_pg_row(&row_map) {
+                    durations.push(checkpoint);
                 }
             }
         }

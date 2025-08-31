@@ -52,6 +52,10 @@ mod tests {
             color: ActiveValue::Set(Some("#2196F3".to_string())),
             app_id: ActiveValue::Set(1), // Now this app exists
             is_active: ActiveValue::Set(Some(false)),
+            duration: ActiveValue::Set(None),
+            sessions_count: ActiveValue::Set(None),
+            last_updated: ActiveValue::Set(Some(now)),
+            activated_at: ActiveValue::Set(None),
         };
 
         let insert_result = rt.block_on(checkpoints::Entity::insert(checkpoint).exec(&*db));
