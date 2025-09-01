@@ -250,22 +250,24 @@ impl Restable for SeaORMClient {
                                     .await
                                     .map_err(|e| format!("Database error finding active checkpoints: {}", e))?;
 
-                                // Parse the JSON response to get checkpoint models
-                                if let Some(checkpoints_array) = active_checkpoints_value.as_array() {
-                                    for checkpoint_value in checkpoints_array {
+                                // Parse the JSON response to get checkpoint models and update their duration
+                                if let Some(checkpoints) = active_checkpoints_value.as_array() {
+                                    for checkpoint_value in checkpoints {
                                         if let Ok(checkpoint) = serde_json::from_value::<checkpoints::Model>(checkpoint_value.clone()) {
                                             let current_checkpoint_duration = checkpoint.duration.unwrap_or(0);
                                             let new_checkpoint_duration = current_checkpoint_duration + 1;
 
-                                            update_checkpoint_duration(
-                                                &self,
+                                            let self_clone = self.clone();
+
+                                            if let Err(e) = update_checkpoint_duration(
+                                                &self_clone,
                                                 checkpoint.id,
-                                                app_id, // This parameter is not used in the function but required by the signature
+                                                app_id,
                                                 new_checkpoint_duration,
                                                 checkpoint.sessions_count.unwrap_or(0)
-                                            )
-                                            .await
-                                            .map_err(|e| format!("Database error updating checkpoint duration: {}", e))?;
+                                            ).await {
+                                                eprintln!("Database error updating checkpoint duration: {}", e);
+                                            }
                                         }
                                     }
                                 }
@@ -301,22 +303,24 @@ impl Restable for SeaORMClient {
                                     .await
                                     .map_err(|e| format!("Database error finding active checkpoints: {}", e))?;
 
-                                // Parse the JSON response to get checkpoint models
-                                if let Some(checkpoints_array) = active_checkpoints_value.as_array() {
-                                    for checkpoint_value in checkpoints_array {
+                                // Parse the JSON response to get checkpoint models and increment their session count
+                                if let Some(checkpoints) = active_checkpoints_value.as_array() {
+                                    for checkpoint_value in checkpoints {
                                         if let Ok(checkpoint) = serde_json::from_value::<checkpoints::Model>(checkpoint_value.clone()) {
                                             let current_sessions_count = checkpoint.sessions_count.unwrap_or(0);
                                             let new_sessions_count = current_sessions_count + 1;
 
-                                            update_checkpoint_duration(
-                                                &self,
+                                            let self_clone = self.clone();
+
+                                            if let Err(e) = update_checkpoint_duration(
+                                                &self_clone,
                                                 checkpoint.id,
-                                                app_id, // This parameter is not used in the function but required by the signature
+                                                app_id,
                                                 checkpoint.duration.unwrap_or(0),
                                                 new_sessions_count
-                                            )
-                                            .await
-                                            .map_err(|e| format!("Database error updating checkpoint sessions: {}", e))?;
+                                            ).await {
+                                                eprintln!("Database error updating checkpoint sessions: {}", e);
+                                            }
                                         }
                                     }
                                 }
@@ -375,7 +379,23 @@ impl Restable for SeaORMClient {
                                         date: ActiveValue::Set(today),
                                         duration: ActiveValue::Set(Some(1)),
                                         app_id: ActiveValue::Set(app_id),
-                                        checkpoint_id: ActiveValue::Set(None),
+                                        checkpoint_id: ActiveValue::Set({
+                                            // Check if there are any active checkpoints for this app
+                                            // and associate the timeline entry with the first active checkpoint
+                                            get_active_checkpoints_for_app(&self, app_id)
+                                                .await
+                                                .ok()
+                                                .and_then(|active_checkpoints_value| {
+                                                    // Parse the JSON response to get the first active checkpoint
+                                                    active_checkpoints_value
+                                                        .as_array()
+                                                        .and_then(|arr| arr.first())
+                                                        .and_then(|first_checkpoint| {
+                                                            serde_json::from_value::<checkpoints::Model>(first_checkpoint.clone()).ok()
+                                                        })
+                                                        .map(|checkpoint| checkpoint.id)
+                                                })
+                                        }),
                                     };
 
                                     timeline::Entity::insert(new_timeline)
