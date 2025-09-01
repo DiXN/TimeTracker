@@ -12,7 +12,7 @@ use crate::restable::Restable;
 use crossbeam_channel::Receiver;
 
 // Import our entities
-use crate::entities::{apps, timeline};
+use crate::entities::{apps, timeline, checkpoints};
 
 // Import our SeaORM query functions
 use crate::seaorm_queries::{
@@ -20,7 +20,8 @@ use crate::seaorm_queries::{
     get_session_count_for_app, get_all_app_ids, get_all_checkpoints, get_checkpoints_for_app,
     create_checkpoint, set_checkpoint_active, delete_checkpoint, get_active_checkpoints,
     get_active_checkpoints_for_app, get_all_timeline, get_checkpoint_durations_by_ids,
-    get_checkpoints_for_timeline, update_checkpoint_duration, get_checkpoint_durations, get_checkpoint_durations_for_app,
+    update_checkpoint_duration, get_checkpoint_durations, get_checkpoint_durations_for_app,
+    get_timeline_checkpoint_associations,
 };
 
 #[derive(Clone)]
@@ -230,15 +231,44 @@ impl Restable for SeaORMClient {
                             let app = apps::Entity::find()
                                 .filter(apps::Column::Name.eq(&item))
                                 .one(&*self.connection)
-                                .await?;
+                                .await
+                                .map_err(|e| format!("Database error finding app: {}", e))?;
 
                             if let Some(app_model) = app {
+                                let app_id = app_model.id;
                                 let current_duration = app_model.duration.unwrap_or(0);
                                 let new_duration = current_duration + 1;
 
                                 let mut app_active: apps::ActiveModel = app_model.into();
                                 app_active.duration = ActiveValue::Set(Some(new_duration));
-                                app_active.update(&*self.connection).await?;
+                                app_active.update(&*self.connection)
+                                    .await
+                                    .map_err(|e| format!("Database error updating app duration: {}", e))?;
+
+                                // Check for active checkpoints for this app and update their duration
+                                let active_checkpoints_value = get_active_checkpoints_for_app(&self, app_id)
+                                    .await
+                                    .map_err(|e| format!("Database error finding active checkpoints: {}", e))?;
+
+                                // Parse the JSON response to get checkpoint models
+                                if let Some(checkpoints_array) = active_checkpoints_value.as_array() {
+                                    for checkpoint_value in checkpoints_array {
+                                        if let Ok(checkpoint) = serde_json::from_value::<checkpoints::Model>(checkpoint_value.clone()) {
+                                            let current_checkpoint_duration = checkpoint.duration.unwrap_or(0);
+                                            let new_checkpoint_duration = current_checkpoint_duration + 1;
+
+                                            update_checkpoint_duration(
+                                                &self,
+                                                checkpoint.id,
+                                                app_id, // This parameter is not used in the function but required by the signature
+                                                new_checkpoint_duration,
+                                                checkpoint.sessions_count.unwrap_or(0)
+                                            )
+                                            .await
+                                            .map_err(|e| format!("Database error updating checkpoint duration: {}", e))?;
+                                        }
+                                    }
+                                }
                             }
 
                             Ok::<(), Box<dyn std::error::Error>>(())
@@ -252,15 +282,44 @@ impl Restable for SeaORMClient {
                             let app = apps::Entity::find()
                                 .filter(apps::Column::Name.eq(&item))
                                 .one(&*self.connection)
-                                .await?;
+                                .await
+                                .map_err(|e| format!("Database error finding app: {}", e))?;
 
                             if let Some(app_model) = app {
+                                let app_id = app_model.id;
                                 let current_launches = app_model.launches.unwrap_or(0);
                                 let new_launches = current_launches + 1;
 
                                 let mut app_active: apps::ActiveModel = app_model.into();
                                 app_active.launches = ActiveValue::Set(Some(new_launches));
-                                app_active.update(&*self.connection).await?;
+                                app_active.update(&*self.connection)
+                                    .await
+                                    .map_err(|e| format!("Database error updating app launches: {}", e))?;
+
+                                // Check for active checkpoints for this app and increment their session count
+                                let active_checkpoints_value = get_active_checkpoints_for_app(&self, app_id)
+                                    .await
+                                    .map_err(|e| format!("Database error finding active checkpoints: {}", e))?;
+
+                                // Parse the JSON response to get checkpoint models
+                                if let Some(checkpoints_array) = active_checkpoints_value.as_array() {
+                                    for checkpoint_value in checkpoints_array {
+                                        if let Ok(checkpoint) = serde_json::from_value::<checkpoints::Model>(checkpoint_value.clone()) {
+                                            let current_sessions_count = checkpoint.sessions_count.unwrap_or(0);
+                                            let new_sessions_count = current_sessions_count + 1;
+
+                                            update_checkpoint_duration(
+                                                &self,
+                                                checkpoint.id,
+                                                app_id, // This parameter is not used in the function but required by the signature
+                                                checkpoint.duration.unwrap_or(0),
+                                                new_sessions_count
+                                            )
+                                            .await
+                                            .map_err(|e| format!("Database error updating checkpoint sessions: {}", e))?;
+                                        }
+                                    }
+                                }
                             }
 
                             Ok::<(), Box<dyn std::error::Error>>(())
@@ -453,15 +512,9 @@ impl Restable for SeaORMClient {
         get_timeline_with_checkpoints(self).await
     }
 
+
     async fn get_timeline_checkpoint_associations(&self) -> Result<Value, Box<dyn Error>> {
         get_timeline_checkpoint_associations(self).await
-    }
-
-    async fn get_timeline_checkpoints_for_timeline(
-        &self,
-        timeline_id: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        get_checkpoints_for_timeline(self, timeline_id).await
     }
 
     async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>> {

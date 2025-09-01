@@ -131,11 +131,8 @@ impl Restable for TestClient {
         self.client.get_all_timeline().await
     }
 
-    async fn get_timeline_checkpoints_for_timeline(
-        &self,
-        timeline_id: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        self.client.get_timeline_checkpoints_for_timeline(timeline_id).await
+    async fn get_timeline_checkpoint_associations(&self) -> Result<Value, Box<dyn Error>> {
+        self.client.get_timeline_checkpoint_associations().await
     }
 
     async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>> {
