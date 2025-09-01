@@ -52,3 +52,4 @@ embed-resource = "1.3.2"
 [features]
 firebase = ["reqwest"]
 psql = ["sea-orm", "sea-orm-migration"]
+sqlite = ["sea-orm", "sea-orm-migration"]
