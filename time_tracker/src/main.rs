@@ -67,10 +67,14 @@ struct Config {
     firebase: Option<Firebase>,
     #[cfg(feature = "psql")]
     postgres: Option<Postgres>,
+    // Time tracking delay settings
+    #[serde(default)]
+    time_tracking: time_tracking::TimeTrackingConfig,
     // When using SQLite feature without psql or firebase, we still need a valid struct
     #[cfg(all(feature = "sqlite", not(any(feature = "firebase", feature = "psql"))))]
     _dummy: Option<String>, // Placeholder to make the struct valid
 }
+
 
 #[cfg(feature = "firebase")]
 #[derive(Deserialize)]
@@ -112,7 +116,7 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
         _ => panic!("Missing credentials."),
     };
 
-    Ok(time_tracking::init(firebase_client)?)
+    Ok(time_tracking::init(firebase_client, config.time_tracking)?)
 }
 
 #[cfg(feature = "psql")]
@@ -160,12 +164,12 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
 
     // Handle the async function in a blocking manner
     rt.block_on(async {
-        time_tracking::init(seaorm_client).await
+        time_tracking::init(seaorm_client, config.time_tracking).await
     })
 }
 
 #[cfg(feature = "sqlite")]
-fn init_client(_config: Config) -> Result<(), Box<dyn Error>> {
+fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
     // Create a runtime for async operations
     let rt = tokio::runtime::Runtime::new()?;
 
@@ -186,12 +190,12 @@ fn init_client(_config: Config) -> Result<(), Box<dyn Error>> {
 
     // Handle the async function in a blocking manner
     rt.block_on(async {
-        time_tracking::init(seaorm_client).await
+        time_tracking::init(seaorm_client, time_tracking::TimeTrackingConfig::default()).await
     })
 }
 
 #[cfg(not(any(feature = "firebase", feature = "psql", feature = "sqlite")))]
-fn init_client(_config: Config) -> Result<(), Box<dyn Error>> {
+fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
     // Default implementation when no features are enabled
     Ok(())
 }
@@ -217,6 +221,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 firebase: None,
                 #[cfg(feature = "psql")]
                 postgres: None,
+                time_tracking: time_tracking::TimeTrackingConfig::default(),
                 #[cfg(all(feature = "sqlite", not(any(feature = "firebase", feature = "psql"))))]
                 _dummy: None,
             };

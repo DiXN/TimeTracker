@@ -13,6 +13,7 @@ use jsonrpc_http_server::ServerBuilder;
 
 use crate::restable::Restable;
 use crate::time_tracking::{add_process, delete_process};
+use log::{error, info};
 
 pub fn init_rpc<T>(client: T)
 where

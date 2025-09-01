@@ -9,6 +9,7 @@ use crate::structs::{
     App, AppStatistics, Checkpoint, SessionCount, Timeline, TrackingStatus,
     WebSocketCommand, WebSocketMessage,
 };
+use log::{error, info};
 use tungstenite::{Message, accept};
 use serde_json::Value as JsonValue;
 

@@ -1,5 +1,6 @@
 use std::process::Command;
 use std::{collections::HashMap, error::Error as Std_Error, io::Error, process::ExitStatus};
+use log::info;
 
 #[cfg(windows)]
 use crate::windows::{

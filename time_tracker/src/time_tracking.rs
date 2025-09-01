@@ -8,14 +8,31 @@ use std::{
 
 use crossbeam_channel::{Sender, unbounded};
 
-use crate::box_err;
-use crate::error::AddError;
+use log::info;
+
+use crate::{box_err, error::AddError};
 use crate::hook::init_hook;
 use crate::native::{are_processes_running, ver_query_value};
 use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
 use crate::rpc::init_rpc;
 use crate::web_socket::init_web_socket;
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(crate = "serde")]
+pub struct TimeTrackingConfig {
+    pub tracking_delay_ms: u64,
+    pub check_delay_ms: u64,
+}
+
+impl Default for TimeTrackingConfig {
+    fn default() -> Self {
+        TimeTrackingConfig {
+            tracking_delay_ms: 60000, // 60 seconds
+            check_delay_ms: 10000,    // 10 seconds
+        }
+    }
+}
 
 lazy_static! {
     static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = Mutex::new(HashMap::new());
@@ -31,7 +48,7 @@ macro_rules! active {
   }}
 }
 
-pub async fn init<T>(client: T) -> Result<(), Box<dyn Error>>
+pub async fn init<T>(client: T, config: TimeTrackingConfig) -> Result<(), Box<dyn Error>>
 where
     T: Restable + Clone + Sync + Send + 'static,
 {
@@ -53,7 +70,7 @@ where
     init_web_socket(client.clone());
 
     client.init_event_loop(rx);
-    check_processes(spawn_tx);
+    check_processes(spawn_tx, config.clone());
 
     while let Ok(p) = spawn_rx.recv() {
         let tx_arc_clone = tx_arc.clone();
@@ -64,7 +81,7 @@ where
             let mut counter = 0;
 
             loop {
-                thread::sleep(Duration::from_secs(60));
+                thread::sleep(Duration::from_millis(config.tracking_delay_ms));
 
                 active! {
                   if let Some((fst, snd)) = PROCESS_MAP.lock().unwrap().get_mut(&p) {
@@ -89,7 +106,7 @@ where
     Ok(())
 }
 
-fn check_processes(spawn_tx: Sender<String>) {
+fn check_processes(spawn_tx: Sender<String>, config: TimeTrackingConfig) {
     thread::spawn(move || {
         loop {
             let p_map = PROCESS_MAP.lock().unwrap();
@@ -103,7 +120,7 @@ fn check_processes(spawn_tx: Sender<String>) {
 
             if let Ok(m) = are_processes_running(&processes[..]) {
                 if m.is_empty() {
-                    thread::sleep(Duration::from_millis(10000));
+                    thread::sleep(Duration::from_millis(config.check_delay_ms));
                     continue;
                 }
 
@@ -122,7 +139,7 @@ fn check_processes(spawn_tx: Sender<String>) {
                 }
             }
 
-            thread::sleep(Duration::from_millis(10000));
+            thread::sleep(Duration::from_millis(config.check_delay_ms));
         }
     });
 }
