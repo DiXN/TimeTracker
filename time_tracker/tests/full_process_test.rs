@@ -25,37 +25,13 @@ mod tests {
         let db = rt
             .block_on(create_and_initialize_test_db())
             .expect("Failed to create test database");
-        let client = SeaORMClient::new_with_connection(db);
+        let client = Arc::new(RwLock::new(SeaORMClient::new_with_connection(db)));
         println!("Created test database and client");
 
         // Setup the database schema
-        let setup_result = rt.block_on(client.setup());
+        let setup_result = rt.block_on(client.read().unwrap().setup());
         assert!(setup_result.is_ok());
         println!("Database schema setup completed");
-
-        // Add a process to track - we'll use "sleep" to match the Linux process name
-        let add_result = rt.block_on(client.put_data("sleep", "Sleep Command"));
-        match &add_result {
-            Ok(_) => println!("Added sleep to tracking"),
-            Err(e) => {
-                println!("Failed to add sleep to tracking: {}", e);
-                // Let's also try to get all apps to see if the table exists
-                match rt.block_on(client.get_all_apps()) {
-                    Ok(apps) => println!("Current apps in database: {:?}", apps),
-                    Err(e) => println!("Failed to get apps: {}", e),
-                }
-            }
-        }
-        assert!(add_result.is_ok());
-        println!("Added sleep to tracking");
-
-        // Verify the app was added
-        let apps_result = rt.block_on(client.get_all_apps());
-        assert!(apps_result.is_ok());
-        let apps_value = apps_result.unwrap();
-        assert!(apps_value.as_array().is_some());
-        assert_eq!(apps_value.as_array().unwrap().len(), 1);
-        println!("Verified app was added to database");
 
         // Create a time tracking config with short delays for testing
         let config = TimeTrackingConfig {
@@ -69,10 +45,38 @@ mod tests {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 // This will run indefinitely, so we'll stop it manually after our test
-                let _ = init_time_tracking(client_clone, config).await;
+                let _ = init_time_tracking(client_clone.read().unwrap().clone(), config).await;
             });
         });
         println!("Started time tracking system");
+
+        // Add a process to track - we'll use "sleep" to match the Linux process name
+        let add_result = rt.block_on(time_tracker::time_tracking::add_process(
+            "sleep",
+            "/bin/sleep",
+            &client,
+        ));
+        match &add_result {
+            Ok(_) => println!("Added sleep to tracking"),
+            Err(e) => {
+                println!("Failed to add sleep to tracking: {}", e);
+                // Let's also try to get all apps to see if the table exists
+                match rt.block_on(client.read().unwrap().get_all_apps()) {
+                    Ok(apps) => println!("Current apps in database: {:?}", apps),
+                    Err(e) => println!("Failed to get apps: {}", e),
+                }
+            }
+        }
+        assert!(add_result.is_ok());
+        println!("Added sleep to tracking");
+
+        // Verify the app was added
+        let apps_result = rt.block_on(client.read().unwrap().get_all_apps());
+        assert!(apps_result.is_ok());
+        let apps_value = apps_result.unwrap();
+        assert!(apps_value.as_array().is_some());
+        assert_eq!(apps_value.as_array().unwrap().len(), 1);
+        println!("Verified app was added to database");
 
         // Give the tracking system time to initialize
         thread::sleep(Duration::from_millis(100));
@@ -94,7 +98,7 @@ mod tests {
         println!("Checking database state after simulation...");
 
         // Check app data - should have launches and duration now
-        let apps_after = rt.block_on(client.get_all_apps()).unwrap();
+        let apps_after = rt.block_on(client.read().unwrap().get_all_apps()).unwrap();
         println!(
             "Number of apps in database: {}",
             apps_after.as_array().unwrap().len()
@@ -118,10 +122,10 @@ mod tests {
         child.kill().expect("Failed to kill process");
 
         println!("Waiting for process {} to be killed...", child.id());
-        thread::sleep(Duration::from_millis(1000));
+        thread::sleep(Duration::from_millis(2000));
 
         // Check app data - should have launches and duration now
-        let apps_after = rt.block_on(client.get_all_apps()).unwrap();
+        let apps_after = rt.block_on(client.read().unwrap().get_all_apps()).unwrap();
 
         if !apps_after.as_array().unwrap().is_empty() {
             let app = &apps_after.as_array().unwrap()[0];
@@ -140,7 +144,7 @@ mod tests {
         }
 
         // Check timeline data
-        let timeline_result = rt.block_on(client.get_all_timeline());
+        let timeline_result = rt.block_on(client.read().unwrap().get_all_timeline());
         if let Ok(timeline_value) = timeline_result {
             if let Some(timeline_array) = timeline_value.as_array() {
                 println!("Number of timeline entries: {}", timeline_array.len());

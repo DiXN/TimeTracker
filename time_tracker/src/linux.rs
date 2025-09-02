@@ -3,7 +3,7 @@ use std::{
 };
 
 use procfs::process::Process;
-use sysinfo::{Pid, System};
+use sysinfo::{Pid, ProcessStatus, System};
 
 use niri_ipc::socket::Socket;
 use niri_ipc::{Request, Response};
@@ -103,7 +103,8 @@ fn get_active_window_niri() -> Result<(String, String), Box<dyn Std_Error>> {
 
 pub fn ux_are_processes_running(processes: &[String]) -> Result<HashMap<&String, bool>, Error> {
     let mut map = HashMap::new();
-    let sys = System::new_all();
+    let mut sys = System::new_all();
+    sys.refresh_all();
 
     for process in processes {
         map.insert(process, false);
@@ -112,7 +113,9 @@ pub fn ux_are_processes_running(processes: &[String]) -> Result<HashMap<&String,
     for process in sys.processes().values() {
         let process_name = process.name().to_str().unwrap_or("");
         for target_process in processes {
-            if target_process == process_name || target_process == &format!("{}.exe", process_name)
+            if (target_process == process_name
+                || target_process == &format!("{}.exe", process_name))
+                && process.status() != ProcessStatus::Zombie
             {
                 map.insert(target_process, true);
             }
