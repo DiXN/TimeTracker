@@ -9,6 +9,7 @@ use crate::structs::{
     App, AppStatistics, Checkpoint, SessionCount, Timeline, TrackingStatus, WebSocketCommand,
     WebSocketMessage,
 };
+use crate::time_tracking::TimeTrackingConfig;
 
 use crate::time_tracking::{add_process, delete_process};
 use log::{error, info};
@@ -19,10 +20,11 @@ use tungstenite::{Message, accept};
 pub struct ServerState<T: Restable> {
     pub client: Arc<RwLock<T>>,
     tracking_status: TrackingStatus,
+    config: Arc<RwLock<TimeTrackingConfig>>,
 }
 
 impl<T: Restable> ServerState<T> {
-    fn new(client: T) -> Self {
+    fn new(client: T, config: Arc<RwLock<TimeTrackingConfig>>) -> Self {
         Self {
             client: Arc::new(RwLock::new(client)),
             tracking_status: TrackingStatus {
@@ -33,6 +35,7 @@ impl<T: Restable> ServerState<T> {
                 session_start_time: None,
                 active_checkpoint_ids: vec![],
             },
+            config,
         }
     }
 
@@ -75,6 +78,18 @@ impl<T: Restable> ServerState<T> {
     fn get_tracking_status(&self) -> TrackingStatus {
         self.tracking_status.clone()
     }
+
+    /// Update the time tracking configuration
+    fn update_config(&mut self, new_config: TimeTrackingConfig) {
+        let mut config = self.config.write().unwrap();
+        *config = new_config;
+    }
+
+    /// Get a copy of the current time tracking configuration
+    fn get_config(&self) -> TimeTrackingConfig {
+        let config = self.config.read().unwrap();
+        config.clone()
+    }
 }
 
 // Helper function to convert JSON values to strings
@@ -89,11 +104,11 @@ fn json_value_to_string(value: &JsonValue) -> String {
     }
 }
 
-pub fn init_web_socket<T>(client: T)
+pub fn init_web_socket<T>(client: T, config: Arc<RwLock<TimeTrackingConfig>>)
 where
     T: Restable + Sync + Send + 'static,
 {
-    let server_state = ServerState::new(client);
+    let server_state = ServerState::new(client, config);
     let state_arc = Arc::new(RwLock::new(server_state));
 
     thread::spawn(move || {
@@ -219,6 +234,10 @@ where
         WebSocketCommand::GetStatistics(payload) => handle_get_statistics(state, &payload).await,
         WebSocketCommand::GetCheckpointStats(payload) => {
             handle_get_checkpoint_stats(state, &payload).await
+        }
+        #[cfg(feature = "sqlite")]
+        WebSocketCommand::UpdateConfig(payload) => {
+            handle_update_config(state, &payload).await
         }
     }
 }
@@ -950,5 +969,42 @@ where
     );
     let response = WebSocketMessage::checkpoint_stats(&response_payload);
 
+    Ok(response.to_json()?)
+}
+
+#[cfg(feature = "sqlite")]
+async fn handle_update_config<T>(
+    state: &Arc<RwLock<ServerState<T>>>,
+    payload: &str,
+) -> Result<String, Box<dyn std::error::Error>>
+where
+    T: Restable + Sync + Send,
+{
+    let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
+
+    let tracking_delay_ms = params
+        .get("tracking_delay_ms")
+        .and_then(|v| v.as_u64())
+        .ok_or("tracking_delay_ms parameter is required")?;
+
+    let check_delay_ms = params
+        .get("check_delay_ms")
+        .and_then(|v| v.as_u64())
+        .ok_or("check_delay_ms parameter is required")?;
+
+    let new_config = TimeTrackingConfig {
+        tracking_delay_ms,
+        check_delay_ms,
+    };
+
+    // Update the config in the server state
+    {
+        let mut state_guard = state
+            .write()
+            .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+        state_guard.update_config(new_config);
+    }
+
+    let response = WebSocketMessage::success("Configuration updated successfully");
     Ok(response.to_json()?)
 }

@@ -65,23 +65,37 @@ where
 
     let (spawn_tx, spawn_rx) = unbounded();
 
+    // Create a shared config that can be updated
+    let shared_config = Arc::new(RwLock::new(config));
+
     init_rpc(client.clone());
 
-    init_web_socket(client.clone());
+    init_web_socket(client.clone(), Arc::clone(&shared_config));
 
     client.init_event_loop(rx);
-    check_processes(spawn_tx, config.clone());
+    check_processes(spawn_tx, Arc::clone(&shared_config));
 
     while let Ok(p) = spawn_rx.recv() {
         let tx_arc_clone = tx_arc.clone();
+        let config_clone = Arc::clone(&shared_config);
 
         thread::spawn(move || {
+            #[cfg(not(feature = "sqlite"))]
+            let tracking_delay_ms = config_clone.read().unwrap().tracking_delay_ms;
+
             active! { tx_arc_clone.send((p.to_owned(), ReceiveTypes::Launches)).unwrap(); };
 
             let mut counter = 0;
 
             loop {
-                thread::sleep(Duration::from_millis(config.tracking_delay_ms));
+                // Read the current config values (only for sqlite feature)
+                #[cfg(feature = "sqlite")]
+                let tracking_delay_ms = {
+                    let config = config_clone.read().unwrap();
+                    config.tracking_delay_ms
+                };
+
+                thread::sleep(Duration::from_millis(tracking_delay_ms));
 
                 active! {
                   if let Some((fst, snd)) = PROCESS_MAP.lock().unwrap().get_mut(&p) {
@@ -106,7 +120,10 @@ where
     Ok(())
 }
 
-fn check_processes(spawn_tx: Sender<String>, config: TimeTrackingConfig) {
+fn check_processes(spawn_tx: Sender<String>, config: Arc<RwLock<TimeTrackingConfig>>) {
+    #[cfg(not(feature = "sqlite"))]
+    let check_delay_ms = config.read().unwrap().check_delay_ms;
+
     thread::spawn(move || {
         loop {
             let p_map = PROCESS_MAP.lock().unwrap();
@@ -118,9 +135,16 @@ fn check_processes(spawn_tx: Sender<String>, config: TimeTrackingConfig) {
 
             drop(p_map);
 
+            // Read the current config values (only for sqlite feature)
+            #[cfg(feature = "sqlite")]
+            let check_delay_ms = {
+                let config = config.read().unwrap();
+                config.check_delay_ms
+            };
+
             if let Ok(m) = are_processes_running(&processes[..]) {
                 if m.is_empty() {
-                    thread::sleep(Duration::from_millis(config.check_delay_ms));
+                    thread::sleep(Duration::from_millis(check_delay_ms));
                     continue;
                 }
 
@@ -139,7 +163,7 @@ fn check_processes(spawn_tx: Sender<String>, config: TimeTrackingConfig) {
                 }
             }
 
-            thread::sleep(Duration::from_millis(config.check_delay_ms));
+            thread::sleep(Duration::from_millis(check_delay_ms));
         }
     });
 }

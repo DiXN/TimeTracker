@@ -220,6 +220,9 @@ pub enum WebSocketCommand {
     GetActiveCheckpoints(String),
     #[serde(rename = "get_checkpoint_stats")]
     GetCheckpointStats(String),
+    #[cfg(feature = "sqlite")]
+    #[serde(rename = "update_config")]
+    UpdateConfig(String),
 }
 
 impl WebSocketMessage {

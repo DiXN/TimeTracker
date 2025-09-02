@@ -131,6 +131,19 @@ def main():
         if not start_time_tracker():
             return 1
 
+        # Update TimeTrackingConfig with smaller delays
+        print("Updating TimeTrackingConfig with smaller delays...")
+        update_config_msg = {
+            "type": "update_config",
+            "payload": "{\"tracking_delay_ms\": 1000, \"check_delay_ms\": 500}"
+        }
+        response = send_websocket_message(update_config_msg)
+        if response:
+            print(f"Config update response: {response}")
+        else:
+            print("Failed to update TimeTrackingConfig")
+            return 1
+
         # Add mpv process
         if not add_mpv_process():
             return 1
