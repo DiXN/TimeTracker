@@ -6,23 +6,25 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::restable::Restable;
 use crate::structs::{
-    App, AppStatistics, Checkpoint, SessionCount, Timeline, TrackingStatus,
-    WebSocketCommand, WebSocketMessage,
+    App, AppStatistics, Checkpoint, SessionCount, Timeline, TrackingStatus, WebSocketCommand,
+    WebSocketMessage,
 };
+
+use crate::time_tracking::{add_process, delete_process};
 use log::{error, info};
-use tungstenite::{Message, accept};
 use serde_json::Value as JsonValue;
+use tungstenite::{Message, accept};
 
 // Server state that holds both the client and tracking status
 pub struct ServerState<T: Restable> {
-    pub client: T,
+    pub client: Arc<RwLock<T>>,
     tracking_status: TrackingStatus,
 }
 
 impl<T: Restable> ServerState<T> {
     fn new(client: T) -> Self {
         Self {
-            client,
+            client: Arc::new(RwLock::new(client)),
             tracking_status: TrackingStatus {
                 is_tracking: false,
                 is_paused: false,
@@ -148,9 +150,8 @@ where
                             }
 
                             // Handle the async message using our runtime
-                            let response = rt_clone.block_on(async {
-                                handle_message(&msg, &state_clone).await
-                            });
+                            let response = rt_clone
+                                .block_on(async { handle_message(&msg, &state_clone).await });
 
                             let response_text = match response {
                                 Ok(text) => text,
@@ -199,31 +200,40 @@ where
         WebSocketCommand::AddProcess(payload) => handle_add_process(state, &payload).await,
         WebSocketCommand::DeleteProcess(payload) => handle_delete_process(state, &payload).await,
         WebSocketCommand::GetCheckpoints(payload) => handle_get_checkpoints(state, &payload).await,
-        WebSocketCommand::CreateCheckpoint(payload) => handle_create_checkpoint(state, &payload).await,
+        WebSocketCommand::CreateCheckpoint(payload) => {
+            handle_create_checkpoint(state, &payload).await
+        }
         WebSocketCommand::SetActiveCheckpoint(payload) => {
             handle_set_active_checkpoint(state, &payload).await
         }
-        WebSocketCommand::DeleteCheckpoint(payload) => handle_delete_checkpoint(state, &payload).await,
+        WebSocketCommand::DeleteCheckpoint(payload) => {
+            handle_delete_checkpoint(state, &payload).await
+        }
         WebSocketCommand::GetActiveCheckpoints(payload) => {
             handle_get_active_checkpoints(state, &payload).await
         }
-        WebSocketCommand::GetTrackingStatus(payload) => {
-            handle_get_tracking_status(state, &payload)
+        WebSocketCommand::GetTrackingStatus(payload) => handle_get_tracking_status(state, &payload),
+        WebSocketCommand::GetSessionCounts(payload) => {
+            handle_get_session_counts(state, &payload).await
         }
-        WebSocketCommand::GetSessionCounts(payload) => handle_get_session_counts(state, &payload).await,
         WebSocketCommand::GetStatistics(payload) => handle_get_statistics(state, &payload).await,
-        WebSocketCommand::GetCheckpointStats(payload) => handle_get_checkpoint_stats(state, &payload).await,
+        WebSocketCommand::GetCheckpointStats(payload) => {
+            handle_get_checkpoint_stats(state, &payload).await
+        }
     }
 }
 
-async fn handle_get_apps<T>(state: &Arc<RwLock<ServerState<T>>>) -> Result<String, Box<dyn std::error::Error>>
+async fn handle_get_apps<T>(
+    state: &Arc<RwLock<ServerState<T>>>,
+) -> Result<String, Box<dyn std::error::Error>>
 where
     T: Restable + Sync + Send,
 {
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let apps_data = client_guard.get_all_apps().await?;
     let mut apps = Vec::new();
@@ -259,7 +269,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     // Get all timeline data without filtering (matching Dart implementation)
     let timeline_data = client_guard.get_timeline_with_checkpoints().await?;
@@ -280,7 +291,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let app_name = params
         .get("name")
@@ -328,7 +340,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let process_name = params
@@ -340,12 +353,13 @@ where
         .and_then(|v| v.as_str())
         .ok_or("path parameter is required")?;
 
-    match client_guard.put_data(process_name, path).await {
+    // Clone the Arc<RwLock<T>> as required by add_process
+    let client_arc = Arc::clone(&state_guard.client);
+
+    match add_process(process_name, path, &client_arc).await {
         Ok(_) => {
-            let response = WebSocketMessage::success(&format!(
-                "Successfully added process: {}",
-                process_name
-            ));
+            let response =
+                WebSocketMessage::success(&format!("Successfully added process: {}", process_name));
             Ok(response.to_json()?)
         }
         Err(e) => {
@@ -368,7 +382,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let process_name = params
@@ -376,7 +391,10 @@ where
         .and_then(|v| v.as_str())
         .ok_or("process_name parameter is required")?;
 
-    match client_guard.delete_data(process_name).await {
+    // Clone the Arc<RwLock<T>> as required by delete_process
+    let client_arc = Arc::clone(&state_guard.client);
+
+    match delete_process(process_name, &client_arc).await {
         Ok(_) => {
             let response = WebSocketMessage::success(&format!(
                 "Successfully deleted process: {}",
@@ -404,7 +422,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let checkpoints_data = if payload.is_empty() {
         client_guard.get_all_checkpoints().await?
@@ -454,7 +473,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let name = params
@@ -477,7 +497,10 @@ where
     // Handle valid_from parameter (could be used in future)
     let _valid_from = params.get("valid_from").and_then(|v| v.as_str());
 
-    match client_guard.create_checkpoint(name, description, app_id).await {
+    match client_guard
+        .create_checkpoint(name, description, app_id)
+        .await
+    {
         Ok(_) => {
             // Get updated checkpoints for the app to return current state
             match client_guard.get_checkpoints_for_app(app_id).await {
@@ -529,7 +552,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let checkpoint_id = params
@@ -548,9 +572,13 @@ where
         .unwrap_or(false);
 
     let result = if is_active {
-        client_guard.set_checkpoint_active(checkpoint_id, true).await
+        client_guard
+            .set_checkpoint_active(checkpoint_id, true)
+            .await
     } else {
-        client_guard.set_checkpoint_active(checkpoint_id, false).await
+        client_guard
+            .set_checkpoint_active(checkpoint_id, false)
+            .await
     };
 
     match result {
@@ -586,7 +614,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let checkpoint_id = params
@@ -623,7 +652,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let active_checkpoints_data = if payload.is_empty() {
         client_guard.get_active_checkpoints().await?
@@ -691,23 +721,26 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     // Get all app IDs and create session counts
     let app_ids = client_guard.get_all_app_ids().await?;
     // Use try_join_all to properly handle async operations in a loop
-    let session_counts = futures_util::future::try_join_all(
-        app_ids.into_iter().map(|app_id| async move {
-            let state_guard = state.read()
+    let session_counts =
+        futures_util::future::try_join_all(app_ids.into_iter().map(|app_id| async move {
+            let state_guard = state
+                .read()
                 .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-            let client_guard = &state_guard.client;
+            let client_guard = state_guard.client.read()
+                .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
             let session_count_value = client_guard.get_session_count_for_app(app_id).await?;
             Ok::<SessionCount, Box<dyn std::error::Error>>(SessionCount {
                 app_id,
                 session_count: session_count_value,
             })
-        })
-    ).await?;
+        }))
+        .await?;
 
     let counts_json = serde_json::to_string(&session_counts)?;
     let response = WebSocketMessage::session_counts_data(&counts_json);
@@ -725,7 +758,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     // Get all apps and create statistics
     let apps_data = client_guard.get_all_apps().await?;
@@ -754,71 +788,90 @@ where
                         .await?;
 
                     // Process timeline data using functional patterns
-                    let (recent_sessions, today_duration, week_duration, month_duration, total_duration, session_count) =
-                        if let Some(timeline_rows) = timeline_data.as_array() {
-                            // Take the first 10 entries as recent sessions
-                            let recent_sessions: Vec<Timeline> = timeline_rows
-                                .iter()
-                                .take(10)
-                                .filter_map(|timeline_row| {
-                                    timeline_row.as_object().and_then(|timeline_obj| {
-                                        let timeline_row_map: HashMap<String, String> = timeline_obj
-                                            .iter()
-                                            .map(|(k, v)| (k.clone(), json_value_to_string(v)))
-                                            .collect();
-                                        Timeline::from_pg_row(&timeline_row_map)
-                                    })
+                    let (
+                        recent_sessions,
+                        today_duration,
+                        week_duration,
+                        month_duration,
+                        total_duration,
+                        session_count,
+                    ) = if let Some(timeline_rows) = timeline_data.as_array() {
+                        // Take the first 10 entries as recent sessions
+                        let recent_sessions: Vec<Timeline> = timeline_rows
+                            .iter()
+                            .take(10)
+                            .filter_map(|timeline_row| {
+                                timeline_row.as_object().and_then(|timeline_obj| {
+                                    let timeline_row_map: HashMap<String, String> = timeline_obj
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), json_value_to_string(v)))
+                                        .collect();
+                                    Timeline::from_pg_row(&timeline_row_map)
                                 })
-                                .collect();
+                            })
+                            .collect();
 
-                            // Calculate aggregations using functional approach
-                            let (total_duration, session_count, today_dur, week_dur, month_dur) =
-                                timeline_rows.iter().fold(
-                                    (0, 0, 0, 0, 0),
-                                    |(total, count, today_sum, week_sum, month_sum), timeline_row| {
-                                        if let Some(timeline_obj) = timeline_row.as_object() {
-                                            let timeline_row_map: HashMap<String, String> = timeline_obj
+                        // Calculate aggregations using functional approach
+                        let (total_duration, session_count, today_dur, week_dur, month_dur) =
+                            timeline_rows.iter().fold(
+                                (0, 0, 0, 0, 0),
+                                |(total, count, today_sum, week_sum, month_sum), timeline_row| {
+                                    if let Some(timeline_obj) = timeline_row.as_object() {
+                                        let timeline_row_map: HashMap<String, String> =
+                                            timeline_obj
                                                 .iter()
                                                 .map(|(k, v)| (k.clone(), json_value_to_string(v)))
                                                 .collect();
 
-                                            if let Some(timeline_entry) = Timeline::from_pg_row(&timeline_row_map) {
-                                                let duration = timeline_entry.duration.unwrap_or(0);
-                                                let today_increment = timeline_entry.date
-                                                    .filter(|&date| date == today)
-                                                    .map(|_| duration)
-                                                    .unwrap_or(0);
+                                        if let Some(timeline_entry) =
+                                            Timeline::from_pg_row(&timeline_row_map)
+                                        {
+                                            let duration = timeline_entry.duration.unwrap_or(0);
+                                            let today_increment = timeline_entry
+                                                .date
+                                                .filter(|&date| date == today)
+                                                .map(|_| duration)
+                                                .unwrap_or(0);
 
-                                                let week_increment = timeline_entry.date
-                                                    .filter(|&date| date >= week_ago)
-                                                    .map(|_| duration)
-                                                    .unwrap_or(0);
+                                            let week_increment = timeline_entry
+                                                .date
+                                                .filter(|&date| date >= week_ago)
+                                                .map(|_| duration)
+                                                .unwrap_or(0);
 
-                                                let month_increment = timeline_entry.date
-                                                    .filter(|&date| date >= month_ago)
-                                                    .map(|_| duration)
-                                                    .unwrap_or(0);
+                                            let month_increment = timeline_entry
+                                                .date
+                                                .filter(|&date| date >= month_ago)
+                                                .map(|_| duration)
+                                                .unwrap_or(0);
 
-                                                (
-                                                    total + duration,
-                                                    count + 1,
-                                                    today_sum + today_increment,
-                                                    week_sum + week_increment,
-                                                    month_sum + month_increment
-                                                )
-                                            } else {
-                                                (total, count, today_sum, week_sum, month_sum)
-                                            }
+                                            (
+                                                total + duration,
+                                                count + 1,
+                                                today_sum + today_increment,
+                                                week_sum + week_increment,
+                                                month_sum + month_increment,
+                                            )
                                         } else {
                                             (total, count, today_sum, week_sum, month_sum)
                                         }
+                                    } else {
+                                        (total, count, today_sum, week_sum, month_sum)
                                     }
-                                );
+                                },
+                            );
 
-                            (recent_sessions, today_dur, week_dur, month_dur, total_duration, session_count)
-                        } else {
-                            (vec![], 0, 0, 0, 0, 0)
-                        };
+                        (
+                            recent_sessions,
+                            today_dur,
+                            week_dur,
+                            month_dur,
+                            total_duration,
+                            session_count,
+                        )
+                    } else {
+                        (vec![], 0, 0, 0, 0, 0)
+                    };
 
                     // Calculate average session length
                     let average_session_length = if session_count > 0 {
@@ -858,7 +911,8 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = &state_guard.client;
+    let client_guard = state_guard.client.read()
+        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let checkpoint_id = params
@@ -868,7 +922,9 @@ where
         .ok_or("checkpoint_id parameter is required")?;
 
     // Get checkpoint durations for the specified checkpoint ID
-    let durations_data = client_guard.get_checkpoint_durations_by_ids(&[checkpoint_id]).await?;
+    let durations_data = client_guard
+        .get_checkpoint_durations_by_ids(&[checkpoint_id])
+        .await?;
 
     let mut durations = Vec::new();
 
