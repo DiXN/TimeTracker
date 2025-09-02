@@ -50,9 +50,6 @@ impl Restable for TestClient {
         self.client.setup().await
     }
 
-    async fn get_data(&self, item: &str) -> Result<Value, Box<dyn Error>> {
-        self.client.get_data(item).await
-    }
 
     async fn get_processes(&self) -> Result<Vec<String>, Box<dyn Error>> {
         self.client.get_processes().await
@@ -127,35 +124,14 @@ impl Restable for TestClient {
         self.client.get_active_checkpoints_for_app(app_id).await
     }
 
-    async fn get_all_timeline(&self) -> Result<Value, Box<dyn Error>> {
-        self.client.get_all_timeline().await
-    }
 
-    async fn get_timeline_checkpoint_associations(&self) -> Result<Value, Box<dyn Error>> {
-        self.client.get_timeline_checkpoint_associations().await
-    }
 
     async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>> {
         self.client.get_checkpoint_durations_by_ids(checkpoint_ids).await
     }
 
-    async fn get_checkpoint_durations(&self) -> Result<Value, Box<dyn Error>> {
-        self.client.get_checkpoint_durations().await
-    }
 
-    async fn get_checkpoint_durations_for_app(&self, app_id: i32) -> Result<Value, Box<dyn Error>> {
-        self.client.get_checkpoint_durations_for_app(app_id).await
-    }
 
-    async fn update_checkpoint_duration(
-        &self,
-        checkpoint_id: i32,
-        app_id: i32,
-        duration: i32,
-        sessions_count: i32,
-    ) -> Result<Value, Box<dyn Error>> {
-        self.client.update_checkpoint_duration(checkpoint_id, app_id, duration, sessions_count).await
-    }
 
     async fn get_timeline_with_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
         self.client.get_timeline_with_checkpoints().await

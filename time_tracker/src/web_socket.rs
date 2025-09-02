@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use crate::restable::Restable;
 use crate::structs::{
     App, AppStatistics, Checkpoint, SessionCount, Timeline, TrackingStatus, WebSocketCommand,
     WebSocketMessage,
 };
+#[cfg(feature = "memory")]
 use crate::time_tracking::TimeTrackingConfig;
 
 use crate::time_tracking::{add_process, delete_process};
@@ -20,11 +21,12 @@ use tungstenite::{Message, accept};
 pub struct ServerState<T: Restable> {
     pub client: Arc<RwLock<T>>,
     tracking_status: TrackingStatus,
+    #[cfg(feature = "memory")]
     config: Arc<RwLock<TimeTrackingConfig>>,
 }
 
 impl<T: Restable> ServerState<T> {
-    fn new(client: T, config: Arc<RwLock<TimeTrackingConfig>>) -> Self {
+    fn new(client: T, #[cfg(feature = "memory")] config: Arc<RwLock<TimeTrackingConfig>>) -> Self {
         Self {
             client: Arc::new(RwLock::new(client)),
             tracking_status: TrackingStatus {
@@ -35,61 +37,11 @@ impl<T: Restable> ServerState<T> {
                 session_start_time: None,
                 active_checkpoint_ids: vec![],
             },
+            #[cfg(feature = "memory")]
             config,
         }
     }
 
-    /// Update the tracking status to indicate a process is being tracked
-    fn start_tracking(&mut self, app_name: String, active_checkpoints: Vec<i32>) {
-        let start_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or_else(|_| 0)
-            .to_string();
-
-        self.tracking_status = TrackingStatus {
-            is_tracking: true,
-            is_paused: false,
-            current_app: Some(app_name),
-            current_session_duration: 0,
-            session_start_time: Some(start_time),
-            active_checkpoint_ids: active_checkpoints,
-        };
-    }
-
-    /// Update the tracking status to indicate tracking has stopped
-    fn stop_tracking(&mut self) {
-        self.tracking_status = TrackingStatus {
-            is_tracking: false,
-            is_paused: false,
-            current_app: None,
-            current_session_duration: 0,
-            session_start_time: None,
-            active_checkpoint_ids: vec![],
-        };
-    }
-
-    /// Update the current session duration
-    fn update_session_duration(&mut self, duration: i32) {
-        self.tracking_status.current_session_duration = duration;
-    }
-
-    /// Get a copy of the current tracking status
-    fn get_tracking_status(&self) -> TrackingStatus {
-        self.tracking_status.clone()
-    }
-
-    /// Update the time tracking configuration
-    fn update_config(&mut self, new_config: TimeTrackingConfig) {
-        let mut config = self.config.write().unwrap();
-        *config = new_config;
-    }
-
-    /// Get a copy of the current time tracking configuration
-    fn get_config(&self) -> TimeTrackingConfig {
-        let config = self.config.read().unwrap();
-        config.clone()
-    }
 }
 
 // Helper function to convert JSON values to strings
@@ -104,11 +56,11 @@ fn json_value_to_string(value: &JsonValue) -> String {
     }
 }
 
-pub fn init_web_socket<T>(client: T, config: Arc<RwLock<TimeTrackingConfig>>)
+pub fn init_web_socket<T>(client: T, #[cfg(feature = "memory")] config: Arc<RwLock<TimeTrackingConfig>>)
 where
     T: Restable + Sync + Send + 'static,
 {
-    let server_state = ServerState::new(client, config);
+    let server_state = ServerState::new(client, #[cfg(feature = "memory")] config);
     let state_arc = Arc::new(RwLock::new(server_state));
 
     thread::spawn(move || {
@@ -359,8 +311,6 @@ where
     let state_guard = state
         .read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = state_guard.client.read()
-        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
     let process_name = params
@@ -400,8 +350,6 @@ where
 {
     let state_guard = state
         .read()
-        .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
-    let client_guard = state_guard.client.read()
         .map_err(|e| format!("Failed to acquire read lock: {}", e))?;
 
     let params: HashMap<String, serde_json::Value> = serde_json::from_str(payload)?;
@@ -580,11 +528,6 @@ where
         .and_then(|v| v.as_i64())
         .map(|i| i as i32)
         .ok_or("checkpoint_id parameter is required")?;
-    let app_id = params
-        .get("app_id")
-        .and_then(|v| v.as_i64())
-        .map(|i| i as i32)
-        .ok_or("app_id parameter is required")?;
     let is_active = params
         .get("is_active")
         .and_then(|v| v.as_bool())
@@ -992,17 +935,20 @@ where
         .and_then(|v| v.as_u64())
         .ok_or("check_delay_ms parameter is required")?;
 
-    let new_config = TimeTrackingConfig {
+    let _new_config = TimeTrackingConfig {
         tracking_delay_ms,
         check_delay_ms,
     };
 
     // Update the config in the server state
     {
-        let mut state_guard = state
+        let state_guard = state
             .write()
             .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
-        state_guard.update_config(new_config);
+        let mut config = state_guard.config.write()
+            .map_err(|e| format!("Failed to acquire config write lock: {}", e))?;
+        config.tracking_delay_ms = tracking_delay_ms;
+        config.check_delay_ms = check_delay_ms;
     }
 
     let response = WebSocketMessage::success("Configuration updated successfully");

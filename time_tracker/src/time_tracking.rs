@@ -70,7 +70,7 @@ where
 
     init_rpc(client.clone());
 
-    init_web_socket(client.clone(), Arc::clone(&shared_config));
+    init_web_socket(client.clone(), #[cfg(feature = "memory")] Arc::clone(&shared_config));
 
     client.init_event_loop(rx);
     check_processes(spawn_tx, Arc::clone(&shared_config));

@@ -10,7 +10,7 @@ use crate::Asset;
 use crate::native::get_foreground_meta;
 use crate::restable::Restable;
 use crate::time_tracking::{add_process, pause};
-use log::{error, info};
+use log::{error};
 
 pub fn init_hook<T>(client: T)
 where

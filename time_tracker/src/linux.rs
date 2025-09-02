@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap, env, error::Error as Std_Error, io::Error, process::Command, thread,
+    collections::HashMap, env, error::Error as Std_Error, io::Error, process::Command,
 };
 
 use procfs::process::Process;
@@ -141,6 +141,3 @@ pub fn ux_get_foreground_meta() -> (Option<String>, Option<String>) {
     }
 }
 
-pub fn init_tray() {
-    thread::spawn(move || {});
-}

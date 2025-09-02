@@ -24,20 +24,6 @@ where
     }
 }
 
-impl App {
-    pub fn new(id: i32, name: Option<String>, product_name: Option<String>) -> Self {
-        App {
-            id,
-            name,
-            product_name,
-            duration: Some(0),
-            launches: Some(0),
-            longest_session: Some(0),
-            longest_session_on: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Timeline {
     pub id: i32,
@@ -95,42 +81,6 @@ pub struct AppStatistics {
 pub struct SessionCount {
     pub app_id: i32,
     pub session_count: i32,
-}
-
-impl Timeline {
-    pub fn new(
-        id: i32,
-        date: Option<NaiveDate>,
-        duration: Option<i32>,
-        app_id: Option<i32>,
-    ) -> Self {
-        Timeline {
-            id,
-            date,
-            duration,
-            app_id,
-        }
-    }
-}
-
-impl Checkpoint {
-    pub fn new(id: i32, name: Option<String>, description: Option<String>, app_id: i32) -> Self {
-        Checkpoint {
-            id,
-            name,
-            description,
-            created_at: None,
-            valid_from: None,
-            color: None,
-            app_id,
-            is_active: None,
-            timeline_id: None,
-            duration: None,
-            sessions_count: None,
-            last_updated: None,
-            activated_at: None,
-        }
-    }
 }
 
 
@@ -256,10 +206,6 @@ impl WebSocketMessage {
         WebSocketMessage::CheckpointsList(payload)
     }
 
-    pub fn checkpoint(checkpoint_json: &str) -> Self {
-        let payload = format!(r#"{{"checkpoint": {}}}"#, checkpoint_json);
-        WebSocketMessage::Checkpoint(payload)
-    }
 
     pub fn active_checkpoints(checkpoints_json: &str) -> Self {
         let payload = format!(r#"{{"active_checkpoints": {}}}"#, checkpoints_json);
