@@ -105,15 +105,19 @@ pub fn ux_are_processes_running(processes: &[String]) -> Result<HashMap<&String,
     let mut map = HashMap::new();
     let sys = System::new_all();
 
+    for process in processes {
+        map.insert(process, false);
+    }
+
     for process in sys.processes().values() {
         let process_name = process.name().to_str().unwrap_or("");
         for target_process in processes {
-            if target_process == process_name || target_process == &format!("{}.exe", process_name) {
+            if target_process == process_name || target_process == &format!("{}.exe", process_name)
+            {
                 map.insert(target_process, true);
             }
         }
     }
-
 
     Ok(map)
 }

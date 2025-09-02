@@ -10,13 +10,13 @@ use crossbeam_channel::{Sender, unbounded};
 
 use log::info;
 
-use crate::{box_err, error::AddError};
 use crate::hook::init_hook;
 use crate::native::{are_processes_running, ver_query_value};
 use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
 use crate::rpc::init_rpc;
 use crate::web_socket::init_web_socket;
+use crate::{box_err, error::AddError};
 
 #[derive(Clone, serde::Deserialize)]
 #[serde(crate = "serde")]
@@ -125,7 +125,7 @@ fn check_processes(spawn_tx: Sender<String>, config: TimeTrackingConfig) {
                 }
 
                 for (p, (fst, snd)) in PROCESS_MAP.lock().unwrap().iter_mut() {
-                    if m.contains_key(&format!("{}.exe", p)) {
+                    if *m.get(&format!("{}.exe", p)).unwrap() {
                         *fst = true;
                         if !*snd {
                             *snd = true;
@@ -168,7 +168,11 @@ pub async fn add_process<T: Restable>(
         process.to_owned()
     };
 
-    client.read().unwrap().put_data(process, &product_name).await?;
+    client
+        .read()
+        .unwrap()
+        .put_data(process, &product_name)
+        .await?;
 
     PROCESS_MAP
         .lock()
