@@ -235,7 +235,7 @@ where
         WebSocketCommand::GetCheckpointStats(payload) => {
             handle_get_checkpoint_stats(state, &payload).await
         }
-        #[cfg(feature = "sqlite")]
+        #[cfg(feature = "memory")]
         WebSocketCommand::UpdateConfig(payload) => {
             handle_update_config(state, &payload).await
         }
@@ -972,7 +972,7 @@ where
     Ok(response.to_json()?)
 }
 
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "memory")]
 async fn handle_update_config<T>(
     state: &Arc<RwLock<ServerState<T>>>,
     payload: &str,

@@ -44,7 +44,7 @@ def start_time_tracker():
     # We need to compile with the sqlite feature
     try:
         time_tracker_process = subprocess.Popen([
-            "cargo", "run", "--features", "sqlite", "--", "--memory"
+            "cargo", "run", "--features", "memory", "--", "--memory"
         ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
 
         # Start a thread to print the time tracker output

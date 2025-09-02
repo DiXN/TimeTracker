@@ -5,9 +5,9 @@ extern crate lazy_static;
 #[macro_use]
 extern crate rust_embed;
 
+use std::env;
 use std::error::Error;
 use std::fs;
-use std::env;
 use std::process;
 
 use env_logger::{Builder, Env};
@@ -29,23 +29,23 @@ mod restable;
 mod hook;
 mod rpc;
 
-#[cfg(any(feature = "psql", feature = "sqlite"))]
+#[cfg(any(feature = "psql", feature = "memory"))]
 mod seaorm_client;
-#[cfg(any(feature = "psql", feature = "sqlite"))]
+#[cfg(any(feature = "psql", feature = "memory"))]
 use crate::seaorm_client::SeaORMClient;
 
-#[cfg(any(feature = "psql", feature = "sqlite"))]
+#[cfg(any(feature = "psql", feature = "memory"))]
 mod entities;
 
-#[cfg(any(feature = "psql", feature = "sqlite"))]
+#[cfg(any(feature = "psql", feature = "memory"))]
 mod seaorm_queries;
 
-#[cfg(any(feature = "psql", feature = "sqlite"))]
+#[cfg(any(feature = "psql", feature = "memory"))]
 mod migration;
 
 // Test modules - always available for testing
-mod test_db;
 mod test_client;
+mod test_db;
 
 mod native;
 use crate::native::{autostart, init_tray};
@@ -71,10 +71,9 @@ struct Config {
     #[serde(default)]
     time_tracking: time_tracking::TimeTrackingConfig,
     // When using SQLite feature without psql or firebase, we still need a valid struct
-    #[cfg(all(feature = "sqlite", not(any(feature = "firebase", feature = "psql"))))]
+    #[cfg(all(feature = "memory", not(any(feature = "firebase", feature = "psql"))))]
     _dummy: Option<String>, // Placeholder to make the struct valid
 }
-
 
 #[cfg(feature = "firebase")]
 #[derive(Deserialize)]
@@ -152,7 +151,6 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
     let rt = tokio::runtime::Runtime::new()?;
 
     let seaorm_client = rt.block_on(async {
-        // Connect to the database
         let client = SeaORMClient::new(&db_url).await?;
 
         // Run migrations
@@ -163,14 +161,11 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
     })?;
 
     // Handle the async function in a blocking manner
-    rt.block_on(async {
-        time_tracking::init(seaorm_client, config.time_tracking).await
-    })
+    rt.block_on(async { time_tracking::init(seaorm_client, config.time_tracking).await })
 }
 
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "memory")]
 fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
-    // Create a runtime for async operations
     let rt = tokio::runtime::Runtime::new()?;
 
     let seaorm_client = rt.block_on(async {
@@ -188,13 +183,12 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
         Ok::<SeaORMClient, Box<dyn Error>>(client)
     })?;
 
-    // Handle the async function in a blocking manner
     rt.block_on(async {
         time_tracking::init(seaorm_client, time_tracking::TimeTrackingConfig::default()).await
     })
 }
 
-#[cfg(not(any(feature = "firebase", feature = "psql", feature = "sqlite")))]
+#[cfg(not(any(feature = "firebase", feature = "psql", feature = "memory")))]
 fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
     // Default implementation when no features are enabled
     Ok(())
@@ -208,13 +202,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     autostart()?;
     init_tray();
 
-    // Check for --memory flag
     let args: Vec<String> = env::args().collect();
     let use_memory_db = args.contains(&"--memory".to_string());
 
     if use_memory_db {
-        // For in-memory database, we don't need to read config file
-        #[cfg(feature = "sqlite")]
+        #[cfg(feature = "memory")]
         {
             let config = Config {
                 #[cfg(feature = "firebase")]
@@ -222,18 +214,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                 #[cfg(feature = "psql")]
                 postgres: None,
                 time_tracking: time_tracking::TimeTrackingConfig::default(),
-                #[cfg(all(feature = "sqlite", not(any(feature = "firebase", feature = "psql"))))]
+                #[cfg(all(feature = "memory", not(any(feature = "firebase", feature = "psql"))))]
                 _dummy: None,
             };
             init_client(config)?;
         }
-        #[cfg(not(feature = "sqlite"))]
+        #[cfg(not(feature = "memory"))]
         {
-            eprintln!("Error: SQLite feature not enabled. Please compile with --features sqlite");
+            eprintln!("Error: Memory feature not enabled. Please compile with --features memory");
             process::exit(1);
         }
     } else {
-        // Read config from file as usual
         let config = fs::read_to_string("env.toml")?;
         let config: Config = toml::from_str(&config)?;
         init_client(config)?;

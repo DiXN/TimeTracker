@@ -80,7 +80,7 @@ where
         let config_clone = Arc::clone(&shared_config);
 
         thread::spawn(move || {
-            #[cfg(not(feature = "sqlite"))]
+            #[cfg(not(feature = "memory"))]
             let tracking_delay_ms = config_clone.read().unwrap().tracking_delay_ms;
 
             active! { tx_arc_clone.send((p.to_owned(), ReceiveTypes::Launches)).unwrap(); };
@@ -88,8 +88,8 @@ where
             let mut counter = 0;
 
             loop {
-                // Read the current config values (only for sqlite feature)
-                #[cfg(feature = "sqlite")]
+                // Read the current config values (only for memory feature)
+                #[cfg(feature = "memory")]
                 let tracking_delay_ms = {
                     let config = config_clone.read().unwrap();
                     config.tracking_delay_ms
@@ -121,7 +121,7 @@ where
 }
 
 fn check_processes(spawn_tx: Sender<String>, config: Arc<RwLock<TimeTrackingConfig>>) {
-    #[cfg(not(feature = "sqlite"))]
+    #[cfg(not(feature = "memory"))]
     let check_delay_ms = config.read().unwrap().check_delay_ms;
 
     thread::spawn(move || {
@@ -135,8 +135,8 @@ fn check_processes(spawn_tx: Sender<String>, config: Arc<RwLock<TimeTrackingConf
 
             drop(p_map);
 
-            // Read the current config values (only for sqlite feature)
-            #[cfg(feature = "sqlite")]
+            // Read the current config values (only for memory feature)
+            #[cfg(feature = "memory")]
             let check_delay_ms = {
                 let config = config.read().unwrap();
                 config.check_delay_ms
