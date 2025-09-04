@@ -7,6 +7,8 @@ use std::{
 };
 
 use crossbeam_channel::{Sender, unbounded};
+use lazy_static::lazy_static;
+use chrono;
 
 use log::info;
 
@@ -15,7 +17,8 @@ use crate::native::{are_processes_running, ver_query_value};
 use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
 use crate::rpc::init_rpc;
-use crate::web_socket::init_web_socket;
+use crate::websocket::{init_web_socket, notify_tracking_status, has_active_notifier};
+use crate::structs::TrackingStatus;
 use crate::{box_err, error::AddError};
 
 #[derive(Clone, serde::Deserialize)]
@@ -85,6 +88,19 @@ where
 
             active! { tx_arc_clone.send((p.to_owned(), ReceiveTypes::Launches)).unwrap(); };
 
+            // Only broadcast if there are active WebSocket clients
+            if has_active_notifier() {
+                let start_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.fZ").to_string();
+                notify_tracking_status(TrackingStatus {
+                    is_tracking: true,
+                    is_paused: false,
+                    current_app: Some(p.clone()),
+                    current_session_duration: 0,
+                    session_start_time: Some(start_time),
+                    active_checkpoint_ids: vec![],
+                });
+            }
+
             let mut counter = 0;
 
             loop {
@@ -103,6 +119,18 @@ where
                       tx_arc_clone.send((p.to_owned(), ReceiveTypes::Duration)).unwrap();
                       tx_arc_clone.send((p.to_owned(), ReceiveTypes::Timeline)).unwrap();
                       counter += 1;
+
+                      // Only broadcast if there are active WebSocket clients
+                      if has_active_notifier() {
+                          notify_tracking_status(TrackingStatus {
+                              is_tracking: true,
+                              is_paused: false,
+                              current_app: Some(p.clone()),
+                              current_session_duration: counter,
+                              session_start_time: Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.fZ").to_string()),
+                              active_checkpoint_ids: vec![],
+                          });
+                      }
                     } else {
                       *snd = false;
                       break;
@@ -112,6 +140,18 @@ where
             }
 
             active! { tx_arc_clone.send((format!("{};{}", p.to_owned(), counter), ReceiveTypes::LongestSession)).unwrap(); }
+
+            // Only broadcast if there are active WebSocket clients
+            if has_active_notifier() {
+                notify_tracking_status(TrackingStatus {
+                    is_tracking: false,
+                    is_paused: false,
+                    current_app: None,
+                    current_session_duration: 0,
+                    session_start_time: None,
+                    active_checkpoint_ids: vec![],
+                });
+            }
 
             info!("Process: {} has finished.", p)
         });
@@ -230,3 +270,5 @@ pub fn pause() {
         info!("\"time_tracker\" has been resumed.");
     }
 }
+
+

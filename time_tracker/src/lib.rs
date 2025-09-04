@@ -29,7 +29,7 @@ pub mod error;
 pub mod hook;
 pub mod native;
 pub mod rpc;
-pub mod web_socket;
+pub mod websocket;
 pub mod linux;
 
 #[macro_use]

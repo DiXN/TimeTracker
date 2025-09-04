@@ -54,7 +54,7 @@ mod windows;
 
 #[cfg(not(windows))]
 mod linux;
-mod web_socket;
+mod websocket;
 
 #[derive(RustEmbed)]
 #[folder = "resource/"]
@@ -169,7 +169,7 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
 
     let seaorm_client = rt.block_on(async {
         // Connect to an in-memory SQLite database
-        let db = sea_orm::Database::connect("sqlite::memory:").await?;
+        let db = sea_orm::Database::connect("sqlite:///tmp/tt.sqlite?mode=rwc").await?;
         let db_connection = std::sync::Arc::new(db);
 
         // Create a SeaORMClient with the in-memory database connection

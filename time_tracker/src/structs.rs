@@ -217,6 +217,11 @@ impl WebSocketMessage {
         WebSocketMessage::TrackingStatus(payload)
     }
 
+    pub fn tracking_status_update(status_json: &str) -> Self {
+        let payload = format!(r#"{{"status": {}}}"#, status_json);
+        WebSocketMessage::TrackingStatusUpdate(payload)
+    }
+
     pub fn session_counts_data(counts_json: &str) -> Self {
         let payload = format!(r#"{{"counts": {}}}"#, counts_json);
         WebSocketMessage::SessionCountsData(payload)
