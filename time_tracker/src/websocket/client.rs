@@ -123,10 +123,7 @@ impl ClientConnectionHandler {
                     let response_text = match response {
                         Ok(text) => text,
                         Err(e) => {
-                            let error_msg = WebSocketMessage::error(&format!(
-                                "Error processing request: {}",
-                                e
-                            ));
+                            let error_msg = WebSocketMessage::error(&e.to_string());
                             match error_msg.to_json() {
                                 Ok(error_json) => error_json,
                                 Err(_) => continue,
