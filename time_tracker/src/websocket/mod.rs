@@ -1,23 +1,15 @@
-use std::sync::{Arc, RwLock};
-use crate::restable::Restable;
-use crate::structs::TrackingStatus;
+//! Enhanced WebSocket system for real-time time tracking updates
+//!
+//! This module provides an async-first WebSocket server with intelligent caching,
+//! real-time broadcasting, and session management capabilities.
 
-mod server;
-mod client;
-mod broadcast;
-mod handlers;
-mod tracking_notifier;
+mod async_server;
+mod connection_manager;
+mod integration_example;
+mod tracking_service;
 
-pub use server::{ServerState, init_web_socket};
-pub use tracking_notifier::{notify_tracking_status, has_active_notifier};
-
-pub fn update_tracking_status<T>(
-    state: &Arc<RwLock<ServerState<T>>>,
-    new_status: TrackingStatus,
-) where
-    T: Restable + Sync + Send,
-{
-    if let Ok(state_guard) = state.read() {
-        state_guard.broadcast_tracking_status(new_status);
-    }
-}
+pub use integration_example::WebSocketSystem;
+pub use tracking_service::{
+    initialize_tracking_service, notify_process_started, notify_process_ended,
+    notify_duration_update, notify_tracking_paused
+};

@@ -8,7 +8,6 @@ use std::{
 
 use crossbeam_channel::{Sender, unbounded};
 use lazy_static::lazy_static;
-use chrono;
 
 use log::info;
 
@@ -17,8 +16,10 @@ use crate::native::{are_processes_running, ver_query_value};
 use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
 use crate::rpc::init_rpc;
-use crate::websocket::{init_web_socket, notify_tracking_status, has_active_notifier};
-use crate::structs::TrackingStatus;
+use crate::websocket::{
+    WebSocketSystem, initialize_tracking_service, notify_process_started, notify_process_ended,
+    notify_duration_update, notify_tracking_paused
+};
 use crate::{box_err, error::AddError};
 
 #[derive(Clone, serde::Deserialize)]
@@ -38,7 +39,7 @@ impl Default for TimeTrackingConfig {
 }
 
 lazy_static! {
-    static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = Mutex::new(HashMap::new());
+    pub static ref PROCESS_MAP: Mutex<HashMap<String, (bool, bool)>> = Mutex::new(HashMap::new());
     static ref PAUSE: RwLock<bool> = RwLock::new(false);
 }
 
@@ -73,7 +74,20 @@ where
 
     init_rpc(client.clone());
 
-    init_web_socket(client.clone(), #[cfg(feature = "memory")] Arc::clone(&shared_config));
+    // Initialize the tracking service
+    initialize_tracking_service();
+
+    // Initialize WebSocket system
+    let websocket_system = WebSocketSystem::new(
+        "127.0.0.1:6754", 
+        client.clone(),
+        #[cfg(feature = "memory")] Arc::clone(&shared_config)
+    ).await?;
+    tokio::spawn(async move {
+        if let Err(e) = websocket_system.start().await {
+            log::error!("WebSocket system error: {}", e);
+        }
+    });
 
     client.init_event_loop(rx);
     check_processes(spawn_tx, Arc::clone(&shared_config));
@@ -88,18 +102,10 @@ where
 
             active! { tx_arc_clone.send((p.to_owned(), ReceiveTypes::Launches)).unwrap(); };
 
-            // Only broadcast if there are active WebSocket clients
-            if has_active_notifier() {
-                let start_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.fZ").to_string();
-                notify_tracking_status(TrackingStatus {
-                    is_tracking: true,
-                    is_paused: false,
-                    current_app: Some(p.clone()),
-                    current_session_duration: 0,
-                    session_start_time: Some(start_time),
-                    active_checkpoint_ids: vec![],
-                });
-            }
+            // Notify tracking service about process start
+            notify_process_started(&p);
+
+            // Tracking status updates are now handled by the tracking service
 
             let mut counter = 0;
 
@@ -120,17 +126,10 @@ where
                       tx_arc_clone.send((p.to_owned(), ReceiveTypes::Timeline)).unwrap();
                       counter += 1;
 
-                      // Only broadcast if there are active WebSocket clients
-                      if has_active_notifier() {
-                          notify_tracking_status(TrackingStatus {
-                              is_tracking: true,
-                              is_paused: false,
-                              current_app: Some(p.clone()),
-                              current_session_duration: counter,
-                              session_start_time: Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.fZ").to_string()),
-                              active_checkpoint_ids: vec![],
-                          });
-                      }
+                      // Notify tracking service about duration update
+                      notify_duration_update(&p, counter);
+
+                      // Tracking status updates are now handled by the tracking service
                     } else {
                       *snd = false;
                       break;
@@ -141,17 +140,10 @@ where
 
             active! { tx_arc_clone.send((format!("{};{}", p.to_owned(), counter), ReceiveTypes::LongestSession)).unwrap(); }
 
-            // Only broadcast if there are active WebSocket clients
-            if has_active_notifier() {
-                notify_tracking_status(TrackingStatus {
-                    is_tracking: false,
-                    is_paused: false,
-                    current_app: None,
-                    current_session_duration: 0,
-                    session_start_time: None,
-                    active_checkpoint_ids: vec![],
-                });
-            }
+            // Notify tracking service about process end
+            notify_process_ended(&p);
+
+            // Tracking status updates are now handled by the tracking service
 
             info!("Process: {} has finished.", p)
         });
@@ -264,9 +256,11 @@ pub async fn delete_process<T: Restable>(
 pub fn pause() {
     if !(*PAUSE.read().unwrap()) {
         *PAUSE.write().unwrap() = true;
+        notify_tracking_paused(true);
         info!("\"time_tracker\" has been paused.");
     } else {
         *PAUSE.write().unwrap() = false;
+        notify_tracking_paused(false);
         info!("\"time_tracker\" has been resumed.");
     }
 }
