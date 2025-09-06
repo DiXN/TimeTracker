@@ -12,6 +12,7 @@ use crate::structs::{
 };
 use crate::time_tracking::{add_process, delete_process};
 use super::server::ServerState;
+use super::broadcast::SubscriptionTopic;
 
 type HandlerResult = Result<String, Box<dyn std::error::Error>>;
 
@@ -48,6 +49,17 @@ impl MessageHandler {
     where
         T: Restable + Sync + Send,
     {
+        Self::handle_message_with_client_id(msg, state, None).await
+    }
+
+    pub async fn handle_message_with_client_id<T>(
+        msg: &Message,
+        state: &Arc<RwLock<ServerState<T>>>,
+        client_id: Option<u64>,
+    ) -> HandlerResult
+    where
+        T: Restable + Sync + Send,
+    {
         let text = msg.to_text()?;
         let command = WebSocketCommand::from_json(text)?;
 
@@ -68,6 +80,8 @@ impl MessageHandler {
             WebSocketCommand::GetCheckpointStats(payload) => Self::handle_get_checkpoint_stats(state, &payload).await,
             #[cfg(feature = "memory")]
             WebSocketCommand::UpdateConfig(payload) => Self::handle_update_config(state, &payload).await,
+            WebSocketCommand::Subscribe(payload) => Self::handle_subscribe(state, &payload, client_id),
+            WebSocketCommand::Unsubscribe(payload) => Self::handle_unsubscribe(state, &payload, client_id),
         }
     }
 
@@ -667,6 +681,96 @@ impl MessageHandler {
         }
 
         let response = WebSocketMessage::success("Configuration updated successfully");
+        Ok(response.to_json()?)
+    }
+
+    fn handle_subscribe<T>(
+        state: &Arc<RwLock<ServerState<T>>>,
+        payload: &str,
+        client_id: Option<u64>,
+    ) -> HandlerResult
+    where
+        T: Restable + Sync + Send,
+    {
+        let params = Self::parse_payload(payload)?;
+        let topics_value = params.get("topics")
+            .ok_or_else(|| anyhow!("Missing 'topics' parameter"))?;
+
+        let topic_strings: Vec<String> = serde_json::from_value(topics_value.clone())
+            .context("Failed to parse topics array")?;
+
+        let mut topics = Vec::new();
+        for topic_str in topic_strings {
+            if let Some(topic) = SubscriptionTopic::from_str(&topic_str) {
+                topics.push(topic);
+            } else {
+                return Err(anyhow!("Invalid subscription topic: {}", topic_str).into());
+            }
+        }
+
+        let client_id = if let Some(id) = client_id {
+            id
+        } else {
+            let client_id_value = params.get("client_id")
+                .ok_or_else(|| anyhow!("Missing 'client_id' parameter and no client context"))?;
+            serde_json::from_value(client_id_value.clone())
+                .context("Failed to parse client_id")?
+        };
+
+        let state_guard = state.read()
+            .map_err(|e| anyhow!("Failed to acquire server state lock: {}", e))?;
+        state_guard.subscribe_client(client_id, topics.clone());
+
+        let topic_names: Vec<&str> = topics.iter().map(|t| t.as_str()).collect();
+        let response = WebSocketMessage::success(&format!(
+            "Successfully subscribed to topics: {}",
+            topic_names.join(", ")
+        ));
+        Ok(response.to_json()?)
+    }
+
+    fn handle_unsubscribe<T>(
+        state: &Arc<RwLock<ServerState<T>>>,
+        payload: &str,
+        client_id: Option<u64>,
+    ) -> HandlerResult
+    where
+        T: Restable + Sync + Send,
+    {
+        let params = Self::parse_payload(payload)?;
+        let topics_value = params.get("topics")
+            .ok_or_else(|| anyhow!("Missing 'topics' parameter"))?;
+
+        let topic_strings: Vec<String> = serde_json::from_value(topics_value.clone())
+            .context("Failed to parse topics array")?;
+
+        let mut topics = Vec::new();
+        for topic_str in topic_strings {
+            if let Some(topic) = SubscriptionTopic::from_str(&topic_str) {
+                topics.push(topic);
+            } else {
+                return Err(anyhow!("Invalid subscription topic: {}", topic_str).into());
+            }
+        }
+
+        let client_id = if let Some(id) = client_id {
+            id
+        } else {
+            let client_id_value = params.get("client_id")
+                .ok_or_else(|| anyhow!("Missing 'client_id' parameter and no client context"))?;
+            serde_json::from_value(client_id_value.clone())
+                .context("Failed to parse client_id")?
+        };
+
+        let state_guard = state.read()
+            .map_err(|e| anyhow!("Failed to acquire server state lock: {}", e))?;
+        state_guard.unsubscribe_client(client_id, topics.clone());
+
+        let topic_names: Vec<&str> = topics.iter().map(|t| t.as_str()).collect();
+        let response = WebSocketMessage::success(&format!(
+            "Successfully unsubscribed from topics: {}",
+            topic_names.join(", ")
+        ));
         Ok(response.to_json()?)
     }
 }

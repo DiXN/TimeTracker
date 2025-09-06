@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
+use crate::websocket::{has_active_broadcaster, broadcast_apps_update, broadcast_timeline_update};
 use crossbeam_channel::Receiver;
 
 // Import our entities
@@ -161,6 +162,15 @@ impl Restable for SeaORMClient {
                             }) {
                                 eprintln!("Error updating longest session for {}: {}", app_name, e);
                             }
+
+                            // Broadcast apps update after longest session change
+                            if has_active_broadcaster() {
+                                if let Ok(apps_result) = rt.block_on(self.get_all_apps()) {
+                                    if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps_result) {
+                                        broadcast_apps_update(apps_vec);
+                                    }
+                                }
+                            }
                         }
                     }
                     ReceiveTypes::Duration => {
@@ -219,6 +229,15 @@ impl Restable for SeaORMClient {
                         }) {
                             eprintln!("Error updating duration for {}: {}", item, e);
                         }
+
+                        // Broadcast apps update after duration change
+                        if has_active_broadcaster() {
+                            if let Ok(apps_result) = rt.block_on(self.get_all_apps()) {
+                                if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps_result) {
+                                    broadcast_apps_update(apps_vec);
+                                }
+                            }
+                        }
                     }
                     ReceiveTypes::Launches => {
                         if let Err(e) = rt.block_on(async {
@@ -275,6 +294,15 @@ impl Restable for SeaORMClient {
                             Ok::<(), Box<dyn std::error::Error>>(())
                         }) {
                             eprintln!("Error updating launches for {}: {}", item, e);
+                        }
+
+                        // Broadcast apps update after launches change
+                        if has_active_broadcaster() {
+                            if let Ok(apps_result) = rt.block_on(self.get_all_apps()) {
+                                if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps_result) {
+                                    broadcast_apps_update(apps_vec);
+                                }
+                            }
                         }
                     }
                     ReceiveTypes::Timeline => {
@@ -353,6 +381,15 @@ impl Restable for SeaORMClient {
                             Ok::<(), Box<dyn std::error::Error>>(())
                         }) {
                             eprintln!("Error updating timeline for {}: {}", item, e);
+                        }
+
+                        // Broadcast timeline update after timeline change
+                        if has_active_broadcaster() {
+                            if let Ok(timeline_result) = rt.block_on(self.get_timeline_data(None, 30)) {
+                                if let Ok(timeline_vec) = serde_json::from_value::<Vec<crate::structs::Timeline>>(timeline_result) {
+                                    broadcast_timeline_update(timeline_vec);
+                                }
+                            }
                         }
                     }
                 }
