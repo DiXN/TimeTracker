@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::net::TcpStream;
 use std::sync::{Arc, RwLock};
 use std::sync::mpsc;
@@ -9,7 +10,7 @@ use log::{error, info};
 
 use crate::restable::Restable;
 use crate::structs::{TrackingStatus, WebSocketMessage};
-use super::broadcast::{WebSocketClient, ClientId};
+use super::broadcast::{WebSocketClient, ClientId, SubscriptionTopic};
 use super::server::ServerState;
 use super::handlers::MessageHandler;
 
@@ -39,6 +40,7 @@ impl ClientConnectionHandler {
         let client = WebSocketClient {
             id: client_id,
             sender: client_sender,
+            subscriptions: Arc::new(RwLock::new(HashSet::new())),
         };
 
         {
@@ -117,7 +119,7 @@ impl ClientConnectionHandler {
                     }
 
                     let response = rt.block_on(async {
-                        MessageHandler::handle_message(&msg, &state).await
+                        MessageHandler::handle_message_with_client_id(&msg, &state, Some(client_id)).await
                     });
 
                     let response_text = match response {

@@ -17,7 +17,10 @@ use crate::native::{are_processes_running, ver_query_value};
 use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
 use crate::rpc::init_rpc;
-use crate::websocket::{init_web_socket, notify_tracking_status, has_active_notifier};
+use crate::websocket::{
+    init_web_socket, has_active_notifier,
+    has_active_broadcaster, broadcast_apps_update, broadcast_tracking_status_update
+};
 use crate::structs::TrackingStatus;
 use crate::{box_err, error::AddError};
 
@@ -89,9 +92,9 @@ where
             active! { tx_arc_clone.send((p.to_owned(), ReceiveTypes::Launches)).unwrap(); };
 
             // Only broadcast if there are active WebSocket clients
-            if has_active_notifier() {
+            if has_active_broadcaster() {
                 let start_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.fZ").to_string();
-                notify_tracking_status(TrackingStatus {
+                broadcast_tracking_status_update(TrackingStatus {
                     is_tracking: true,
                     is_paused: false,
                     current_app: Some(p.clone()),
@@ -121,8 +124,8 @@ where
                       counter += 1;
 
                       // Only broadcast if there are active WebSocket clients
-                      if has_active_notifier() {
-                          notify_tracking_status(TrackingStatus {
+                      if has_active_broadcaster() {
+                          broadcast_tracking_status_update(TrackingStatus {
                               is_tracking: true,
                               is_paused: false,
                               current_app: Some(p.clone()),
@@ -142,8 +145,8 @@ where
             active! { tx_arc_clone.send((format!("{};{}", p.to_owned(), counter), ReceiveTypes::LongestSession)).unwrap(); }
 
             // Only broadcast if there are active WebSocket clients
-            if has_active_notifier() {
-                notify_tracking_status(TrackingStatus {
+            if has_active_broadcaster() {
+                broadcast_tracking_status_update(TrackingStatus {
                     is_tracking: false,
                     is_paused: false,
                     current_app: None,
@@ -245,6 +248,15 @@ pub async fn add_process<T: Restable>(
 
     info!("Process \"{}\" has been added.", process);
 
+    // Broadcast apps update if there are active WebSocket clients
+    if has_active_broadcaster() {
+        if let Ok(apps) = client.read().unwrap().get_all_apps().await {
+            if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps) {
+                broadcast_apps_update(apps_vec);
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -257,6 +269,15 @@ pub async fn delete_process<T: Restable>(
     PROCESS_MAP.lock().unwrap().remove(process);
 
     info!("Process \"{}\" has been deleted.", process);
+
+    // Broadcast apps update if there are active WebSocket clients
+    if has_active_broadcaster() {
+        if let Ok(apps) = client.read().unwrap().get_all_apps().await {
+            if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps) {
+                broadcast_apps_update(apps_vec);
+            }
+        }
+    }
 
     Ok(())
 }

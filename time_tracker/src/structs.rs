@@ -173,6 +173,10 @@ pub enum WebSocketCommand {
     #[cfg(feature = "memory")]
     #[serde(rename = "update_config")]
     UpdateConfig(String),
+    #[serde(rename = "subscribe")]
+    Subscribe(String),
+    #[serde(rename = "unsubscribe")]
+    Unsubscribe(String),
 }
 
 impl WebSocketMessage {

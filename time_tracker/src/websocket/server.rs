@@ -6,15 +6,16 @@ use std::thread;
 use std::time::Duration;
 
 use crate::restable::Restable;
-use crate::structs::TrackingStatus;
+use crate::structs::{TrackingStatus, App, Timeline};
 use log::{error, info};
 
 #[cfg(feature = "memory")]
 use crate::time_tracking::TimeTrackingConfig;
 
-use super::broadcast::{BroadcastMessage, WebSocketClient, ClientId, TrackingStatusBroadcaster};
+use super::broadcast::{BroadcastMessage, WebSocketClient, ClientId, SubscriptionBroadcaster, SubscriptionTopic};
 use super::client::ClientConnectionHandler;
 use super::tracking_notifier;
+use super::broadcast_logger::log_broadcast_status;
 
 pub struct ServerState<T: Restable> {
     pub client: Arc<RwLock<T>>,
@@ -70,6 +71,22 @@ impl<T: Restable> ServerState<T> {
         let _ = self.broadcast_sender.send(BroadcastMessage::TrackingStatusUpdate(status));
     }
 
+    pub fn broadcast_apps_update(&self, apps: Vec<App>) {
+        let _ = self.broadcast_sender.send(BroadcastMessage::AppsUpdate(apps));
+    }
+
+    pub fn broadcast_timeline_update(&self, timeline: Vec<Timeline>) {
+        let _ = self.broadcast_sender.send(BroadcastMessage::TimelineUpdate(timeline));
+    }
+
+    pub fn subscribe_client(&self, client_id: ClientId, topics: Vec<SubscriptionTopic>) {
+        let _ = self.broadcast_sender.send(BroadcastMessage::Subscribe { client_id, topics });
+    }
+
+    pub fn unsubscribe_client(&self, client_id: ClientId, topics: Vec<SubscriptionTopic>) {
+        let _ = self.broadcast_sender.send(BroadcastMessage::Unsubscribe { client_id, topics });
+    }
+
     pub fn get_current_tracking_status(&self) -> TrackingStatus {
         self.tracking_status.read().unwrap().clone()
     }
@@ -99,7 +116,7 @@ where
 
     let state_for_broadcast = Arc::clone(&state_arc);
     thread::spawn(move || {
-        TrackingStatusBroadcaster::handle_broadcasts(broadcast_receiver, state_for_broadcast);
+        SubscriptionBroadcaster::handle_broadcasts(broadcast_receiver, state_for_broadcast);
     });
 
     let state_for_server = Arc::clone(&state_arc);
@@ -130,6 +147,7 @@ where
         }
     };
     info!("WebSocket server started on 127.0.0.1:6754");
+    log_broadcast_status();
 
     let mut client_id_counter = 0u64;
 
