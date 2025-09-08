@@ -139,14 +139,14 @@ where
         }
     };
 
-    let server = match TcpListener::bind("127.0.0.1:6754") {
+    let server = match TcpListener::bind("0.0.0.0:6754") {
         Ok(server) => server,
         Err(e) => {
             error!("Failed to bind WebSocket server: {}", e);
             return;
         }
     };
-    info!("WebSocket server started on 127.0.0.1:6754");
+    info!("WebSocket server started on 0.0.0.0:6754");
     log_broadcast_status();
 
     let mut client_id_counter = 0u64;
