@@ -1,26 +1,27 @@
-use std::{error::Error, sync::Arc, time::Duration};
 use async_trait::async_trait;
+use std::{error::Error, sync::Arc, time::Duration};
 
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection, DbErr, EntityTrait,
-    QueryFilter, QueryOrder, QuerySelect, RelationTrait,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database, DatabaseConnection,
+    DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
 };
 use serde_json::{Value, json};
 
 use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
-use crate::websocket::{has_active_broadcaster, broadcast_apps_update, broadcast_timeline_update};
+use crate::websocket::{broadcast_apps_update, broadcast_timeline_update, has_active_broadcaster};
 use crossbeam_channel::Receiver;
 
 // Import our entities
-use crate::entities::{apps, timeline, checkpoints};
+use crate::entities::{apps, checkpoints, timeline};
 
 // Import our SeaORM query functions
 use crate::seaorm_queries::{
-    get_timeline_with_checkpoints,
-    get_session_count_for_app, get_all_app_ids, get_all_checkpoints, get_checkpoints_for_app,
-    create_checkpoint, set_checkpoint_active, delete_checkpoint, get_active_checkpoints,
-    get_active_checkpoints_for_app, get_checkpoint_durations_by_ids,
+    add_process_alias, create_checkpoint, delete_checkpoint, get_active_checkpoints,
+    get_active_checkpoints_for_app, get_all_app_ids, get_all_checkpoints, get_all_process_aliases,
+    get_checkpoint_durations_by_ids, get_checkpoints_for_app, get_process_aliases_by_app_names,
+    get_process_aliases_for_app, get_session_count_for_app, get_timeline_with_checkpoints,
+    remove_process_alias, set_checkpoint_active,
 };
 
 #[derive(Clone)]
@@ -62,7 +63,6 @@ impl Restable for SeaORMClient {
         crate::migration::Migrator::up(&*self.connection, None).await?;
         Ok(())
     }
-
 
     async fn get_processes(&self) -> Result<Vec<String>, Box<dyn Error>> {
         let apps: Vec<apps::Model> = apps::Entity::find().all(&*self.connection).await?;
@@ -166,7 +166,11 @@ impl Restable for SeaORMClient {
                             // Broadcast apps update after longest session change
                             if has_active_broadcaster() {
                                 if let Ok(apps_result) = rt.block_on(self.get_all_apps()) {
-                                    if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps_result) {
+                                    if let Ok(apps_vec) =
+                                        serde_json::from_value::<Vec<crate::structs::App>>(
+                                            apps_result,
+                                        )
+                                    {
                                         broadcast_apps_update(apps_vec);
                                     }
                                 }
@@ -233,7 +237,9 @@ impl Restable for SeaORMClient {
                         // Broadcast apps update after duration change
                         if has_active_broadcaster() {
                             if let Ok(apps_result) = rt.block_on(self.get_all_apps()) {
-                                if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps_result) {
+                                if let Ok(apps_vec) =
+                                    serde_json::from_value::<Vec<crate::structs::App>>(apps_result)
+                                {
                                     broadcast_apps_update(apps_vec);
                                 }
                             }
@@ -299,7 +305,9 @@ impl Restable for SeaORMClient {
                         // Broadcast apps update after launches change
                         if has_active_broadcaster() {
                             if let Ok(apps_result) = rt.block_on(self.get_all_apps()) {
-                                if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps_result) {
+                                if let Ok(apps_vec) =
+                                    serde_json::from_value::<Vec<crate::structs::App>>(apps_result)
+                                {
                                     broadcast_apps_update(apps_vec);
                                 }
                             }
@@ -365,7 +373,12 @@ impl Restable for SeaORMClient {
                                                         .as_array()
                                                         .and_then(|arr| arr.first())
                                                         .and_then(|first_checkpoint| {
-                                                            serde_json::from_value::<checkpoints::Model>(first_checkpoint.clone()).ok()
+                                                            serde_json::from_value::<
+                                                                checkpoints::Model,
+                                                            >(
+                                                                first_checkpoint.clone()
+                                                            )
+                                                            .ok()
                                                         })
                                                         .map(|checkpoint| checkpoint.id)
                                                 })
@@ -385,8 +398,14 @@ impl Restable for SeaORMClient {
 
                         // Broadcast timeline update after timeline change
                         if has_active_broadcaster() {
-                            if let Ok(timeline_result) = rt.block_on(self.get_timeline_data(None, 30)) {
-                                if let Ok(timeline_vec) = serde_json::from_value::<Vec<crate::structs::Timeline>>(timeline_result) {
+                            if let Ok(timeline_result) =
+                                rt.block_on(self.get_timeline_data(None, 30))
+                            {
+                                if let Ok(timeline_vec) =
+                                    serde_json::from_value::<Vec<crate::structs::Timeline>>(
+                                        timeline_result,
+                                    )
+                                {
                                     broadcast_timeline_update(timeline_vec);
                                 }
                             }
@@ -421,9 +440,11 @@ impl Restable for SeaORMClient {
             let timeline_entries: Vec<timeline::Model> =
                 timeline::Entity::find()
                     .join(sea_orm::JoinType::InnerJoin, timeline::Relation::Apps.def())
-                    .filter(apps::Column::Name.eq(name).and(timeline::Column::Date.gte(
-                        chrono::Utc::now().naive_utc().date() - chrono::Duration::days(days),
-                    )))
+                    .filter(apps::Column::Name.eq(name).and(
+                        timeline::Column::Date.gte(
+                            chrono::Utc::now().naive_utc().date() - chrono::Duration::days(days),
+                        ),
+                    ))
                     .order_by_desc(timeline::Column::Date)
                     .all(&*self.connection)
                     .await?;
@@ -442,14 +463,14 @@ impl Restable for SeaORMClient {
             Ok(Value::Array(json_values))
         } else {
             // Get timeline data for all apps
-            let timeline_entries: Vec<timeline::Model> =
-                timeline::Entity::find()
-                    .filter(timeline::Column::Date.gte(
-                        chrono::Utc::now().naive_utc().date() - chrono::Duration::days(days),
-                    ))
-                    .order_by_desc(timeline::Column::Date)
-                    .all(&*self.connection)
-                    .await?;
+            let timeline_entries: Vec<timeline::Model> = timeline::Entity::find()
+                .filter(
+                    timeline::Column::Date
+                        .gte(chrono::Utc::now().naive_utc().date() - chrono::Duration::days(days)),
+                )
+                .order_by_desc(timeline::Column::Date)
+                .all(&*self.connection)
+                .await?;
 
             let json_values: Vec<Value> = timeline_entries
                 .into_iter()
@@ -507,17 +528,50 @@ impl Restable for SeaORMClient {
         get_active_checkpoints_for_app(self, app_id).await
     }
 
-
     async fn get_timeline_with_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
         get_timeline_with_checkpoints(self).await
     }
 
-
-
-    async fn get_checkpoint_durations_by_ids(&self, checkpoint_ids: &[i32]) -> Result<Value, Box<dyn Error>> {
+    async fn get_checkpoint_durations_by_ids(
+        &self,
+        checkpoint_ids: &[i32],
+    ) -> Result<Value, Box<dyn Error>> {
         get_checkpoint_durations_by_ids(self, checkpoint_ids).await
     }
 
+    async fn get_process_aliases_for_app(
+        &self,
+        app_id: i32,
+    ) -> Result<Vec<String>, Box<dyn Error>> {
+        get_process_aliases_for_app(self, app_id).await
+    }
 
+    async fn get_all_process_aliases(
+        &self,
+    ) -> Result<std::collections::HashMap<String, i32>, Box<dyn Error>> {
+        get_all_process_aliases(self).await
+    }
 
+    async fn add_process_alias(
+        &self,
+        process_name: &str,
+        app_id: i32,
+    ) -> Result<Value, Box<dyn Error>> {
+        add_process_alias(self, process_name, app_id).await
+    }
+
+    async fn remove_process_alias(
+        &self,
+        process_name: &str,
+        app_id: i32,
+    ) -> Result<Value, Box<dyn Error>> {
+        remove_process_alias(self, process_name, app_id).await
+    }
+
+    async fn get_process_aliases_by_app_names(
+        &self,
+        app_names: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<String>>, Box<dyn Error>> {
+        get_process_aliases_by_app_names(self, app_names).await
+    }
 }

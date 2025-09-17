@@ -136,6 +136,26 @@ impl Restable for TestClient {
     async fn get_timeline_with_checkpoints(&self) -> Result<Value, Box<dyn Error>> {
         self.client.get_timeline_with_checkpoints().await
     }
+
+    async fn get_process_aliases_for_app(&self, app_id: i32) -> Result<Vec<String>, Box<dyn Error>> {
+        self.client.get_process_aliases_for_app(app_id).await
+    }
+
+    async fn get_all_process_aliases(&self) -> Result<std::collections::HashMap<String, i32>, Box<dyn Error>> {
+        self.client.get_all_process_aliases().await
+    }
+
+    async fn add_process_alias(&self, process_name: &str, app_id: i32) -> Result<Value, Box<dyn Error>> {
+        self.client.add_process_alias(process_name, app_id).await
+    }
+
+    async fn remove_process_alias(&self, process_name: &str, app_id: i32) -> Result<Value, Box<dyn Error>> {
+        self.client.remove_process_alias(process_name, app_id).await
+    }
+
+    async fn get_process_aliases_by_app_names(&self, app_names: &[String]) -> Result<std::collections::HashMap<String, Vec<String>>, Box<dyn Error>> {
+        self.client.get_process_aliases_by_app_names(app_names).await
+    }
 }
 
 #[cfg(test)]

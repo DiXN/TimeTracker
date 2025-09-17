@@ -1,6 +1,4 @@
-use std::{
-    collections::HashMap, env, error::Error as Std_Error, io::Error, process::Command,
-};
+use std::{collections::HashMap, env, error::Error as Std_Error, io::Error, process::Command};
 
 use procfs::process::Process;
 use sysinfo::{Pid, ProcessStatus, System};
@@ -101,7 +99,10 @@ fn get_active_window_niri() -> Result<(String, String), Box<dyn Std_Error>> {
         .ok_or("Could not determine active window".into())
 }
 
-pub fn ux_are_processes_running(processes: &[String]) -> Result<HashMap<&String, bool>, Error> {
+pub fn ux_are_processes_running<'a>(
+    processes: &'a [String],
+    process_aliases: Option<&HashMap<String, Vec<String>>>,
+) -> Result<HashMap<&'a String, bool>, Error> {
     let mut map = HashMap::new();
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -112,12 +113,25 @@ pub fn ux_are_processes_running(processes: &[String]) -> Result<HashMap<&String,
 
     for process in sys.processes().values() {
         let process_name = process.name().to_str().unwrap_or("");
+
         for target_process in processes {
             if (target_process == process_name
                 || target_process == &format!("{}.exe", process_name))
                 && process.status() != ProcessStatus::Zombie
             {
                 map.insert(target_process, true);
+            }
+        }
+
+        if let Some(aliases) = process_aliases {
+            for target_process in processes {
+                if let Some(alias_list) = aliases.get(&target_process.replace(".exe", "")) {
+                    if alias_list.contains(&process_name.to_string())
+                        && process.status() != ProcessStatus::Zombie
+                    {
+                        map.insert(target_process, true);
+                    }
+                }
             }
         }
     }
@@ -140,4 +154,3 @@ pub fn ux_get_foreground_meta() -> (Option<String>, Option<String>) {
         (None, None)
     }
 }
-

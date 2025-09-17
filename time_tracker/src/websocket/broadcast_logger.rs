@@ -1,11 +1,11 @@
-use log::{info, warn, error};
-use crate::structs::{App, Timeline, TrackingStatus};
 use super::tracking_notifier::{
     broadcast_apps_update as internal_broadcast_apps_update,
     broadcast_timeline_update as internal_broadcast_timeline_update,
     broadcast_tracking_status_update as internal_broadcast_tracking_status_update,
     has_active_broadcaster,
 };
+use crate::structs::{App, Timeline, TrackingStatus};
+use log::{error, info, warn};
 
 /// Logged wrapper for broadcasting apps updates
 pub fn broadcast_apps_update(apps: Vec<App>) {
@@ -15,22 +15,26 @@ pub fn broadcast_apps_update(apps: Vec<App>) {
     }
 
     let app_count = apps.len();
-    let app_names: Vec<String> = apps.iter()
+    let app_names: Vec<String> = apps
+        .iter()
         .filter_map(|app| app.name.as_ref())
         .take(3) // Show first 3 app names
         .cloned()
         .collect();
-    
+
     let app_names_str = if app_count > 3 {
         format!("{} and {} more", app_names.join(", "), app_count - 3)
     } else {
         app_names.join(", ")
     };
 
-    info!("Broadcasting apps update: {} apps ({})", app_count, app_names_str);
-    
+    info!(
+        "Broadcasting apps update: {} apps ({})",
+        app_count, app_names_str
+    );
+
     internal_broadcast_apps_update(apps);
-    
+
     info!("Apps update broadcast completed");
 }
 
@@ -42,14 +46,13 @@ pub fn broadcast_timeline_update(timeline: Vec<Timeline>) {
     }
 
     let timeline_count = timeline.len();
-    let total_duration: i32 = timeline.iter()
-        .filter_map(|t| t.duration)
-        .sum();
-    
+    let total_duration: i32 = timeline.iter().filter_map(|t| t.duration).sum();
+
     let date_range = if timeline.is_empty() {
         "no entries".to_string()
     } else {
-        let dates: Vec<String> = timeline.iter()
+        let dates: Vec<String> = timeline
+            .iter()
             .filter_map(|t| t.date.as_ref())
             .map(|d| d.to_string())
             .collect();
@@ -66,18 +69,22 @@ pub fn broadcast_timeline_update(timeline: Vec<Timeline>) {
         }
     };
 
-    info!("Broadcasting timeline update: {} entries, {} total duration, dates: {}", 
-          timeline_count, total_duration, date_range);
-    
+    info!(
+        "Broadcasting timeline update: {} entries, {} total duration, dates: {}",
+        timeline_count, total_duration, date_range
+    );
+
     internal_broadcast_timeline_update(timeline);
-    
+
     info!("Timeline update broadcast completed");
 }
 
 /// Logged wrapper for broadcasting tracking status updates
 pub fn broadcast_tracking_status_update(status: TrackingStatus) {
     if !has_active_broadcaster() {
-        warn!("Attempted to broadcast tracking status update but no active WebSocket broadcaster found");
+        warn!(
+            "Attempted to broadcast tracking status update but no active WebSocket broadcaster found"
+        );
         return;
     }
 
@@ -88,14 +95,16 @@ pub fn broadcast_tracking_status_update(status: TrackingStatus) {
         (false, _) => "Stopped",
     };
 
-    info!("Broadcasting tracking status update: {} - {} (session: {}s, checkpoints: {})", 
-          tracking_state, 
-          app_name, 
-          status.current_session_duration,
-          status.active_checkpoint_ids.len());
-    
+    info!(
+        "Broadcasting tracking status update: {} - {} (session: {}s, checkpoints: {})",
+        tracking_state,
+        app_name,
+        status.current_session_duration,
+        status.active_checkpoint_ids.len()
+    );
+
     internal_broadcast_tracking_status_update(status);
-    
+
     info!("Tracking status update broadcast completed");
 }
 
@@ -127,15 +136,24 @@ where
     F: FnOnce() -> Result<T, Box<dyn std::error::Error>>,
 {
     info!("Starting broadcast operation: {}", operation_name);
-    
+
     match operation() {
         Ok(result) => {
-            info!("Broadcast operation completed successfully: {}", operation_name);
+            info!(
+                "Broadcast operation completed successfully: {}",
+                operation_name
+            );
             Ok(result)
         }
         Err(e) => {
-            error!("Broadcast operation failed: {} - Error: {}", operation_name, e);
-            Err(format!("Broadcast operation '{}' failed: {}", operation_name, e))
+            error!(
+                "Broadcast operation failed: {} - Error: {}",
+                operation_name, e
+            );
+            Err(format!(
+                "Broadcast operation '{}' failed: {}",
+                operation_name, e
+            ))
         }
     }
 }
@@ -153,18 +171,15 @@ mod tests {
 
     #[test]
     fn test_with_broadcast_logging_success() {
-        let result = with_broadcast_logging("test_operation", || {
-            Ok("success".to_string())
-        });
+        let result = with_broadcast_logging("test_operation", || Ok("success".to_string()));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");
     }
 
     #[test]
     fn test_with_broadcast_logging_failure() {
-        let result = with_broadcast_logging("test_operation", || {
-            Err("test error".into())
-        });
+        let result: Result<String, String> =
+            with_broadcast_logging("test_operation", || Err("test error".into()));
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("test error"));
     }

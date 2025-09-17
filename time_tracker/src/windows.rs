@@ -39,6 +39,7 @@ use crate::n_str;
 //reference: https://users.rust-lang.org/t/comparing-a-string-to-an-array-of-i8/5120
 pub fn nt_are_processes_running<'a>(
     processes: &'a [String],
+    process_aliases: Option<&HashMap<String, Vec<String>>>,
 ) -> Result<HashMap<&'a String, bool>, Error> {
     let mut map = HashMap::new();
 
@@ -74,6 +75,16 @@ pub fn nt_are_processes_running<'a>(
                     if &s == process {
                         map.insert(process, true);
                         continue;
+                    }
+                }
+
+                if let Some(aliases) = process_aliases {
+                    for target_process in processes {
+                        if let Some(alias_list) = aliases.get(target_process) {
+                            if alias_list.contains(&s) {
+                                map.insert(target_process, true);
+                            }
+                        }
                     }
                 }
 

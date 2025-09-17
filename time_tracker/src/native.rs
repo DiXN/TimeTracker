@@ -1,6 +1,6 @@
+use log::info;
 use std::process::Command;
 use std::{collections::HashMap, error::Error as Std_Error, io::Error, process::ExitStatus};
-use log::info;
 
 #[cfg(windows)]
 use crate::windows::{
@@ -36,13 +36,19 @@ macro_rules! ns_invoke {
 }
 
 #[cfg(windows)]
-pub fn are_processes_running(processes: &[String]) -> Result<HashMap<&String, bool>, Error> {
-    nt_are_processes_running(processes)
+pub fn are_processes_running<'a>(
+    processes: &'a [String],
+    process_aliases: Option<&HashMap<String, Vec<String>>>,
+) -> Result<HashMap<&'a String, bool>, Error> {
+    nt_are_processes_running(processes, process_aliases)
 }
 
 #[cfg(target_os = "linux")]
-pub fn are_processes_running(processes: &[String]) -> Result<HashMap<&String, bool>, Error> {
-    ux_are_processes_running(processes)
+pub fn are_processes_running<'a>(
+    processes: &'a [String],
+    process_aliases: Option<&HashMap<String, Vec<String>>>,
+) -> Result<HashMap<&'a String, bool>, Error> {
+    ux_are_processes_running(processes, process_aliases)
 }
 
 #[cfg(windows)]

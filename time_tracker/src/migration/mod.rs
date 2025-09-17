@@ -6,6 +6,7 @@ mod m20230101_000003_create_checkpoints_table;
 mod m20230101_000004_create_timeline_checkpoints_table;
 mod m20230101_000005_create_checkpoint_durations_table;
 mod m20230101_000006_create_active_checkpoints_table;
+mod m20230101_000007_create_process_aliases_table;
 
 pub struct Migrator;
 
@@ -19,6 +20,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20230101_000004_create_timeline_checkpoints_table::Migration),
             Box::new(m20230101_000005_create_checkpoint_durations_table::Migration),
             Box::new(m20230101_000006_create_active_checkpoints_table::Migration),
+            Box::new(m20230101_000007_create_process_aliases_table::Migration),
         ]
     }
 }

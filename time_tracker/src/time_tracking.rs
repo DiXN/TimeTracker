@@ -6,9 +6,9 @@ use std::{
     time::Duration,
 };
 
+use chrono;
 use crossbeam_channel::{Sender, unbounded};
 use lazy_static::lazy_static;
-use chrono;
 
 use log::info;
 
@@ -17,11 +17,11 @@ use crate::native::{are_processes_running, ver_query_value};
 use crate::receive_types::ReceiveTypes;
 use crate::restable::Restable;
 use crate::rpc::init_rpc;
-use crate::websocket::{
-    init_web_socket, has_active_notifier,
-    has_active_broadcaster, broadcast_apps_update, broadcast_tracking_status_update
-};
 use crate::structs::TrackingStatus;
+use crate::websocket::{
+    broadcast_apps_update, broadcast_tracking_status_update, has_active_broadcaster,
+    has_active_notifier, init_web_socket,
+};
 use crate::{box_err, error::AddError};
 
 #[derive(Clone, serde::Deserialize)]
@@ -76,10 +76,15 @@ where
 
     init_rpc(client.clone());
 
-    init_web_socket(client.clone(), #[cfg(feature = "memory")] Arc::clone(&shared_config));
+    init_web_socket(
+        client.clone(),
+        #[cfg(feature = "memory")]
+        Arc::clone(&shared_config),
+    );
 
+    let client_clone = client.clone();
     client.init_event_loop(rx);
-    check_processes(spawn_tx, Arc::clone(&shared_config));
+    check_processes(spawn_tx, Arc::clone(&shared_config), client_clone);
 
     while let Ok(p) = spawn_rx.recv() {
         let tx_arc_clone = tx_arc.clone();
@@ -93,7 +98,9 @@ where
 
             // Only broadcast if there are active WebSocket clients
             if has_active_broadcaster() {
-                let start_time = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.fZ").to_string();
+                let start_time = chrono::Utc::now()
+                    .format("%Y-%m-%dT%H:%M:%S%.fZ")
+                    .to_string();
                 broadcast_tracking_status_update(TrackingStatus {
                     is_tracking: true,
                     is_paused: false,
@@ -163,7 +170,11 @@ where
     Ok(())
 }
 
-fn check_processes(spawn_tx: Sender<String>, config: Arc<RwLock<TimeTrackingConfig>>) {
+fn check_processes<T: Restable + Send + 'static>(
+    spawn_tx: Sender<String>,
+    config: Arc<RwLock<TimeTrackingConfig>>,
+    client: T,
+) {
     #[cfg(not(feature = "memory"))]
     let check_delay_ms = config.read().unwrap().check_delay_ms;
 
@@ -171,8 +182,9 @@ fn check_processes(spawn_tx: Sender<String>, config: Arc<RwLock<TimeTrackingConf
         loop {
             let p_map = PROCESS_MAP.lock().unwrap();
 
-            let processes = p_map
-                .keys()
+            let app_names = p_map.keys().cloned().collect::<Vec<String>>();
+            let processes = app_names
+                .iter()
                 .map(|key| format!("{}.exe", key))
                 .collect::<Vec<String>>();
 
@@ -185,7 +197,14 @@ fn check_processes(spawn_tx: Sender<String>, config: Arc<RwLock<TimeTrackingConf
                 config.check_delay_ms
             };
 
-            if let Ok(m) = are_processes_running(&processes[..]) {
+            // Get process aliases from database
+            let process_aliases = {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(client.get_process_aliases_by_app_names(&app_names))
+                    .unwrap_or_default()
+            };
+
+            if let Ok(m) = are_processes_running(&processes[..], Some(&process_aliases)) {
                 if m.is_empty() {
                     thread::sleep(Duration::from_millis(check_delay_ms));
                     continue;
@@ -291,5 +310,3 @@ pub fn pause() {
         info!("\"time_tracker\" has been resumed.");
     }
 }
-
-

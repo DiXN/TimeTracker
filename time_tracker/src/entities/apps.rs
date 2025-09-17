@@ -20,6 +20,8 @@ pub enum Relation {
     Timeline,
     #[sea_orm(has_many = "super::checkpoints::Entity")]
     Checkpoints,
+    #[sea_orm(has_many = "super::process_aliases::Entity")]
+    ProcessAliases,
 }
 
 impl Related<super::timeline::Entity> for Entity {
@@ -31,6 +33,12 @@ impl Related<super::timeline::Entity> for Entity {
 impl Related<super::checkpoints::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Checkpoints.def()
+    }
+}
+
+impl Related<super::process_aliases::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::ProcessAliases.def()
     }
 }
 

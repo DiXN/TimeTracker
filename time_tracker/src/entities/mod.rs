@@ -1,5 +1,6 @@
 pub mod apps;
 pub mod checkpoints;
+pub mod process_aliases;
 pub mod timeline;
 
 // pub use apps::Entity as Apps;

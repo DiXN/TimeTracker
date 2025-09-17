@@ -9,11 +9,7 @@ use serde_json::Value;
 use crate::seaorm_client::SeaORMClient;
 
 // Import our entities
-use crate::entities::{
-    apps, checkpoints, timeline,
-};
-
-
+use crate::entities::{apps, checkpoints, process_aliases, timeline};
 
 // Helper function to convert SeaORM model to JSON with custom error context
 pub fn model_to_json_with_context<T: serde::Serialize>(
@@ -66,22 +62,17 @@ pub async fn set_checkpoint_active(
     checkpoint_id: i32,
     is_active: bool,
 ) -> Result<Value, Box<dyn Error>> {
-    let mut checkpoint: checkpoints::ActiveModel =
-        checkpoints::Entity::find_by_id(checkpoint_id)
-            .one(&*client.connection)
-            .await?
-            .ok_or("Checkpoint not found")?
-            .into();
+    let mut checkpoint: checkpoints::ActiveModel = checkpoints::Entity::find_by_id(checkpoint_id)
+        .one(&*client.connection)
+        .await?
+        .ok_or("Checkpoint not found")?
+        .into();
 
     checkpoint.is_active = ActiveValue::Set(Some(is_active));
 
     // Update activated_at timestamp when activating/deactivating
     let now = chrono::Utc::now().naive_utc();
-    let activated_at = if is_active {
-        Some(now)
-    } else {
-        None
-    };
+    let activated_at = if is_active { Some(now) } else { None };
     checkpoint.activated_at = ActiveValue::Set(activated_at);
 
     // Also update last_updated timestamp
@@ -169,7 +160,6 @@ pub async fn get_active_checkpoints_for_app(
     Ok(Value::Array(json_values))
 }
 
-
 // Other utility functions
 pub async fn get_session_count_for_app(
     client: &SeaORMClient,
@@ -220,23 +210,26 @@ pub async fn get_checkpoint_durations_by_ids(
     Ok(Value::Array(json_values))
 }
 
-
-
 /// Get timeline entries with their associated checkpoints
 pub async fn get_timeline_with_checkpoints(client: &SeaORMClient) -> Result<Value, Box<dyn Error>> {
-    let timeline_entries: Vec<(timeline::Model, Option<checkpoints::Model>)> = timeline::Entity::find()
-        .order_by_desc(timeline::Column::Date)
-        .find_also_related(checkpoints::Entity)
-        .all(&*client.connection)
-        .await?;
+    let timeline_entries: Vec<(timeline::Model, Option<checkpoints::Model>)> =
+        timeline::Entity::find()
+            .order_by_desc(timeline::Column::Date)
+            .find_also_related(checkpoints::Entity)
+            .all(&*client.connection)
+            .await?;
 
     let json_values = timeline_entries
         .into_iter()
         .map(|(timeline, checkpoint)| {
-            let mut timeline_json = serde_json::to_value(&timeline).unwrap_or(serde_json::Value::Null);
+            let mut timeline_json =
+                serde_json::to_value(&timeline).unwrap_or(serde_json::Value::Null);
             if let Some(checkpoint_model) = checkpoint {
                 if let Some(obj) = timeline_json.as_object_mut() {
-                    obj.insert("checkpoint".to_string(), model_to_json_with_context(checkpoint_model, "checkpoint"));
+                    obj.insert(
+                        "checkpoint".to_string(),
+                        model_to_json_with_context(checkpoint_model, "checkpoint"),
+                    );
                 }
             }
             timeline_json
@@ -246,11 +239,99 @@ pub async fn get_timeline_with_checkpoints(client: &SeaORMClient) -> Result<Valu
     Ok(Value::Array(json_values))
 }
 
+// Process aliases queries
+pub async fn get_process_aliases_for_app(
+    client: &SeaORMClient,
+    app_id: i32,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    let aliases: Vec<String> = process_aliases::Entity::find()
+        .filter(process_aliases::Column::AppId.eq(app_id))
+        .select_only()
+        .column(process_aliases::Column::ProcessName)
+        .into_tuple()
+        .all(&*client.connection)
+        .await?;
 
+    Ok(aliases)
+}
 
+pub async fn get_all_process_aliases(
+    client: &SeaORMClient,
+) -> Result<std::collections::HashMap<String, i32>, Box<dyn Error>> {
+    let aliases: Vec<(String, i32)> = process_aliases::Entity::find()
+        .select_only()
+        .column(process_aliases::Column::ProcessName)
+        .column(process_aliases::Column::AppId)
+        .into_tuple()
+        .all(&*client.connection)
+        .await?;
 
+    let mut map = std::collections::HashMap::new();
+    for (process_name, app_id) in aliases {
+        map.insert(process_name, app_id);
+    }
 
+    Ok(map)
+}
 
+pub async fn add_process_alias(
+    client: &SeaORMClient,
+    process_name: &str,
+    app_id: i32,
+) -> Result<Value, Box<dyn Error>> {
+    let alias = process_aliases::ActiveModel {
+        id: ActiveValue::NotSet,
+        process_name: ActiveValue::Set(process_name.to_owned()),
+        app_id: ActiveValue::Set(app_id),
+    };
 
+    process_aliases::Entity::insert(alias)
+        .exec(&*client.connection)
+        .await?;
 
+    Ok(serde_json::json!({"success": "Process alias added successfully"}))
+}
 
+pub async fn remove_process_alias(
+    client: &SeaORMClient,
+    process_name: &str,
+    app_id: i32,
+) -> Result<Value, Box<dyn Error>> {
+    process_aliases::Entity::delete_many()
+        .filter(process_aliases::Column::ProcessName.eq(process_name))
+        .filter(process_aliases::Column::AppId.eq(app_id))
+        .exec(&*client.connection)
+        .await?;
+
+    Ok(serde_json::json!({"success": "Process alias removed successfully"}))
+}
+
+pub async fn get_process_aliases_by_app_names(
+    client: &SeaORMClient,
+    app_names: &[String],
+) -> Result<std::collections::HashMap<String, Vec<String>>, Box<dyn Error>> {
+    let mut aliases_map = std::collections::HashMap::new();
+
+    for app_name in app_names {
+        let app = apps::Entity::find()
+            .filter(apps::Column::Name.eq(app_name))
+            .one(&*client.connection)
+            .await?;
+
+        if let Some(app_model) = app {
+            let aliases: Vec<String> = process_aliases::Entity::find()
+                .filter(process_aliases::Column::AppId.eq(app_model.id))
+                .select_only()
+                .column(process_aliases::Column::ProcessName)
+                .into_tuple()
+                .all(&*client.connection)
+                .await?;
+
+            if !aliases.is_empty() {
+                aliases_map.insert(app_name.clone(), aliases);
+            }
+        }
+    }
+
+    Ok(aliases_map)
+}
