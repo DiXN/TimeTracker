@@ -59,6 +59,14 @@ impl MigrationTrait for Migration {
                             .to(Apps::Table, Apps::Id)
                             .on_delete(ForeignKeyAction::Cascade),
                     )
+                    .index(
+                        Index::create()
+                            .if_not_exists()
+                            .unique()
+                            .name("checkpoints_name_app_id_unique")
+                            .col(Checkpoints::Name)
+                            .col(Checkpoints::AppId),
+                    )
                     .to_owned(),
             )
             .await
