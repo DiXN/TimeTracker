@@ -68,6 +68,27 @@ pub async fn set_checkpoint_active(
         .ok_or("Checkpoint not found")?
         .into();
 
+    // If a checkpoint is activated, all other active checkpoints for the same app should be deactivated
+    if is_active {
+        let app_id = checkpoint.app_id.clone().unwrap();
+
+        let active_checkpoints = checkpoints::Entity::find()
+            .filter(checkpoints::Column::AppId.eq(app_id))
+            .filter(checkpoints::Column::IsActive.eq(true))
+            .filter(checkpoints::Column::Id.ne(checkpoint_id))
+            .all(&*client.connection)
+            .await?;
+
+        let now = chrono::Utc::now().naive_utc();
+        for active_checkpoint in active_checkpoints {
+            let mut active_checkpoint_model: checkpoints::ActiveModel = active_checkpoint.into();
+            active_checkpoint_model.is_active = ActiveValue::Set(Some(false));
+            active_checkpoint_model.activated_at = ActiveValue::Set(None);
+            active_checkpoint_model.last_updated = ActiveValue::Set(Some(now));
+            active_checkpoint_model.update(&*client.connection).await?;
+        }
+    }
+
     checkpoint.is_active = ActiveValue::Set(Some(is_active));
 
     // Update activated_at timestamp when activating/deactivating
