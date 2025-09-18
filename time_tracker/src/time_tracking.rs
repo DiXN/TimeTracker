@@ -113,6 +113,8 @@ where
 
             let mut counter = 0;
 
+            info!("Process: {} has started. at {}", p, chrono::Utc::now());
+
             loop {
                 // Read the current config values (only for memory feature)
                 #[cfg(feature = "memory")]
@@ -163,7 +165,7 @@ where
                 });
             }
 
-            info!("Process: {} has finished.", p)
+            info!("Process: {} has finished at {}.", p, chrono::Utc::now());
         });
     }
 

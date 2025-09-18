@@ -46,6 +46,7 @@ impl SeaORMClient {
         let mut opt = ConnectOptions::new(url.to_owned());
         opt.max_connections(100)
             .min_connections(5)
+            .sqlx_logging(false)
             .connect_timeout(Duration::from_secs(8))
             .idle_timeout(Duration::from_secs(8));
         let db = Database::connect(opt).await?;

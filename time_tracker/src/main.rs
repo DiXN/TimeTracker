@@ -8,6 +8,7 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::process;
+use std::time::Duration;
 
 use env_logger::{Builder, Env};
 
@@ -169,7 +170,14 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
 
     let seaorm_client = rt.block_on(async {
         // Connect to an in-memory SQLite database
-        let db = sea_orm::Database::connect("sqlite:///tmp/tt.sqlite?mode=rwc").await?;
+        let mut opt = sea_orm::ConnectOptions::new("sqlite:///tmp/tt.sqlite?mode=rwc".to_owned());
+        opt.max_connections(100)
+            .min_connections(5)
+            .sqlx_logging(false)
+            .connect_timeout(Duration::from_secs(8))
+            .idle_timeout(Duration::from_secs(8));
+
+        let db = sea_orm::Database::connect(opt).await?;
         let db_connection = std::sync::Arc::new(db);
 
         // Create a SeaORMClient with the in-memory database connection
