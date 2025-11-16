@@ -185,10 +185,7 @@ fn check_processes<T: Restable + Send + 'static>(
             let p_map = PROCESS_MAP.lock().unwrap();
 
             let app_names = p_map.keys().cloned().collect::<Vec<String>>();
-            let processes = app_names
-                .iter()
-                .map(|key| format!("{}.exe", key))
-                .collect::<Vec<String>>();
+            let processes = app_names.clone();
 
             drop(p_map);
 
@@ -213,7 +210,7 @@ fn check_processes<T: Restable + Send + 'static>(
                 }
 
                 for (p, (fst, snd)) in PROCESS_MAP.lock().unwrap().iter_mut() {
-                    if *m.get(&format!("{}.exe", p)).unwrap() {
+                    if *m.get(p).unwrap() {
                         *fst = true;
                         if !*snd {
                             *snd = true;

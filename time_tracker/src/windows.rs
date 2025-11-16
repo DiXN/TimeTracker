@@ -204,15 +204,9 @@ pub fn nt_get_foreground_meta() -> (Option<String>, Option<String>) {
         {
             let process_path = OsString::from_wide(&buffer).to_string_lossy().into_owned();
 
-            let process_path = process_path
-                .find(".exe")
-                .map(|idx| process_path.chars().take(idx + 4).collect::<String>());
-
-            let process = process_path.to_owned().and_then(|pn| {
-                Path::new(&pn)
-                    .file_stem()
-                    .map(|p| p.to_string_lossy().into_owned())
-            });
+            let process = Path::new(&process_path)
+                .file_stem()
+                .map(|p| p.to_string_lossy().into_owned());
 
             return (process_path, process);
         }

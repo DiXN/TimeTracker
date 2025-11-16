@@ -115,8 +115,7 @@ pub fn ux_are_processes_running<'a>(
         let process_name = process.name().to_str().unwrap_or("");
 
         for target_process in processes {
-            if (target_process == process_name
-                || target_process == &format!("{}.exe", process_name))
+            if target_process == process_name
                 && process.status() != ProcessStatus::Zombie
             {
                 map.insert(target_process, true);
@@ -125,7 +124,7 @@ pub fn ux_are_processes_running<'a>(
 
         if let Some(aliases) = process_aliases {
             for target_process in processes {
-                if let Some(alias_list) = aliases.get(&target_process.replace(".exe", "")) {
+                if let Some(alias_list) = aliases.get(target_process) {
                     if alias_list.contains(&process_name.to_string())
                         && process.status() != ProcessStatus::Zombie
                     {
