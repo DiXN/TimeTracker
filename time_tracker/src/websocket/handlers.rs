@@ -180,7 +180,7 @@ impl MessageHandler {
     }
 
     fn calculate_duration_statistics(timeline_entries: &[Timeline]) -> (i32, i32, i32, i32, i32) {
-        let today = chrono::Utc::now().naive_utc().date();
+        let today = chrono::Local::now().naive_local().date();
         let week_ago = today - chrono::Duration::days(7);
         let month_ago = today - chrono::Duration::days(30);
 

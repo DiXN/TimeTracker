@@ -98,8 +98,8 @@ where
 
             // Only broadcast if there are active WebSocket clients
             if has_active_broadcaster() {
-                let start_time = chrono::Utc::now()
-                    .format("%Y-%m-%dT%H:%M:%S%.fZ")
+                let start_time = chrono::Local::now()
+                    .format("%Y-%m-%dT%H:%M:%S%.f")
                     .to_string();
                 broadcast_tracking_status_update(TrackingStatus {
                     is_tracking: true,
@@ -113,7 +113,7 @@ where
 
             let mut counter = 0;
 
-            info!("Process: {} has started. at {}", p, chrono::Utc::now());
+            info!("Process: {} has started. at {}", p, chrono::Local::now());
 
             loop {
                 // Read the current config values (only for memory feature)
@@ -139,7 +139,7 @@ where
                               is_paused: false,
                               current_app: Some(p.clone()),
                               current_session_duration: counter,
-                              session_start_time: Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.fZ").to_string()),
+                              session_start_time: Some(chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.f").to_string()),
                               active_checkpoint_ids: vec![],
                           });
                       }
@@ -165,7 +165,7 @@ where
                 });
             }
 
-            info!("Process: {} has finished at {}.", p, chrono::Utc::now());
+            info!("Process: {} has finished at {}.", p, chrono::Local::now());
         });
     }
 

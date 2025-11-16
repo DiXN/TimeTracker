@@ -33,7 +33,7 @@ pub async fn create_checkpoint(
     app_id: i32,
 ) -> Result<Value, Box<dyn Error>> {
     // Create the active model
-    let now = chrono::Utc::now().naive_utc();
+    let now = chrono::Local::now().naive_local();
     let checkpoint = checkpoints::ActiveModel {
         id: ActiveValue::NotSet, // Let the database auto-generate the ID
         name: ActiveValue::Set(name.to_owned()),
@@ -79,7 +79,7 @@ pub async fn set_checkpoint_active(
             .all(&*client.connection)
             .await?;
 
-        let now = chrono::Utc::now().naive_utc();
+        let now = chrono::Local::now().naive_local();
         for active_checkpoint in active_checkpoints {
             let mut active_checkpoint_model: checkpoints::ActiveModel = active_checkpoint.into();
             active_checkpoint_model.is_active = ActiveValue::Set(Some(false));
@@ -92,7 +92,7 @@ pub async fn set_checkpoint_active(
     checkpoint.is_active = ActiveValue::Set(Some(is_active));
 
     // Update activated_at timestamp when activating/deactivating
-    let now = chrono::Utc::now().naive_utc();
+    let now = chrono::Local::now().naive_local();
     let activated_at = if is_active { Some(now) } else { None };
     checkpoint.activated_at = ActiveValue::Set(activated_at);
 

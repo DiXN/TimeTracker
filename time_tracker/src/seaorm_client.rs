@@ -153,7 +153,7 @@ impl Restable for SeaORMClient {
                                         app_active.longest_session =
                                             ActiveValue::Set(Some(current_session));
                                         app_active.longest_session_on = ActiveValue::Set(Some(
-                                            chrono::Utc::now().naive_utc().date(),
+                                            chrono::Local::now().naive_local().date(),
                                         ));
                                         app_active.update(&*self.connection).await?;
                                     }
@@ -220,7 +220,7 @@ impl Restable for SeaORMClient {
                                             if let Some(checkpoint_model) = checkpoint_model {
                                                 let mut checkpoint_active: checkpoints::ActiveModel = checkpoint_model.into();
                                                 checkpoint_active.duration = ActiveValue::Set(Some(new_checkpoint_duration));
-                                                checkpoint_active.last_updated = ActiveValue::Set(Some(chrono::Utc::now().naive_utc()));
+                                                checkpoint_active.last_updated = ActiveValue::Set(Some(chrono::Local::now().naive_local()));
                                                 if let Err(e) = checkpoint_active.update(&*self.connection).await {
                                                     eprintln!("Database error updating checkpoint duration: {}", e);
                                                 }
@@ -288,7 +288,7 @@ impl Restable for SeaORMClient {
                                             if let Some(checkpoint_model) = checkpoint_model {
                                                 let mut checkpoint_active: checkpoints::ActiveModel = checkpoint_model.into();
                                                 checkpoint_active.sessions_count = ActiveValue::Set(Some(new_sessions_count));
-                                                checkpoint_active.last_updated = ActiveValue::Set(Some(chrono::Utc::now().naive_utc()));
+                                                checkpoint_active.last_updated = ActiveValue::Set(Some(chrono::Local::now().naive_local()));
                                                 if let Err(e) = checkpoint_active.update(&*self.connection).await {
                                                     eprintln!("Database error updating checkpoint sessions: {}", e);
                                                 }
@@ -324,7 +324,7 @@ impl Restable for SeaORMClient {
 
                             if let Some(app_model) = app {
                                 let app_id = app_model.id;
-                                let today = chrono::Utc::now().naive_utc().date();
+                                let today = chrono::Local::now().naive_local().date();
 
                                 // Check if there's already a timeline entry for today
                                 let timeline_entry = timeline::Entity::find()
@@ -443,7 +443,7 @@ impl Restable for SeaORMClient {
                     .join(sea_orm::JoinType::InnerJoin, timeline::Relation::Apps.def())
                     .filter(apps::Column::Name.eq(name).and(
                         timeline::Column::Date.gte(
-                            chrono::Utc::now().naive_utc().date() - chrono::Duration::days(days),
+                            chrono::Local::now().naive_local().date() - chrono::Duration::days(days),
                         ),
                     ))
                     .order_by_desc(timeline::Column::Date)
@@ -467,7 +467,7 @@ impl Restable for SeaORMClient {
             let timeline_entries: Vec<timeline::Model> = timeline::Entity::find()
                 .filter(
                     timeline::Column::Date
-                        .gte(chrono::Utc::now().naive_utc().date() - chrono::Duration::days(days)),
+                        .gte(chrono::Local::now().naive_local().date() - chrono::Duration::days(days)),
                 )
                 .order_by_desc(timeline::Column::Date)
                 .all(&*self.connection)
