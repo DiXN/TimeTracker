@@ -131,7 +131,7 @@ pub fn init_web_socket<T>(
     #[cfg(feature = "memory")] config: Arc<RwLock<TimeTrackingConfig>>,
 ) -> Arc<RwLock<ServerState<T>>>
 where
-    T: Restable + Sync + Send + 'static,
+    T: Restable + Clone + Sync + Send + 'static,
 {
     let (server_state, broadcast_receiver) = ServerState::new(
         client,
@@ -157,7 +157,7 @@ where
 
 fn start_websocket_server<T>(state: Arc<RwLock<ServerState<T>>>)
 where
-    T: Restable + Sync + Send + 'static,
+    T: Restable + Clone + Sync + Send + 'static,
 {
     let Ok(rt) = tokio::runtime::Runtime::new() else {
         error!("Failed to create async runtime");

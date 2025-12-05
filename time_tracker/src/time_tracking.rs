@@ -6,7 +6,6 @@ use std::{
     time::Duration,
 };
 
-use chrono;
 use crossbeam_channel::{Sender, unbounded};
 use lazy_static::lazy_static;
 
@@ -227,14 +226,13 @@ fn check_processes<T: Restable + Send + 'static>(
     });
 }
 
-pub async fn add_process<T: Restable>(
+pub async fn add_process<T: Restable + Clone>(
     process: &str,
     path: &str,
     client: &Arc<RwLock<T>>,
 ) -> Result<(), Box<dyn Error>> {
-    if client
-        .read()
-        .unwrap()
+    let client_clone = client.read().unwrap().clone();
+    if client_clone
         .get_processes()
         .await
         .map(|ref p| p.contains(&process.to_owned()))?
@@ -251,11 +249,8 @@ pub async fn add_process<T: Restable>(
         process.to_owned()
     };
 
-    client
-        .read()
-        .unwrap()
-        .put_data(process, &product_name)
-        .await?;
+    let client_clone = client.read().unwrap().clone();
+    client_clone.put_data(process, &product_name).await?;
 
     PROCESS_MAP
         .lock()
@@ -265,31 +260,34 @@ pub async fn add_process<T: Restable>(
     info!("Process \"{}\" has been added.", process);
 
     if has_active_broadcaster() {
-        if let Ok(apps) = client.read().unwrap().get_all_apps().await {
-            if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps) {
-                broadcast_apps_update(apps_vec);
-            }
+        let client_clone = client.read().unwrap().clone();
+        if let Ok(apps) = client_clone.get_all_apps().await
+            && let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps)
+        {
+            broadcast_apps_update(apps_vec);
         }
     }
 
     Ok(())
 }
 
-pub async fn delete_process<T: Restable>(
+pub async fn delete_process<T: Restable + Clone>(
     process: &str,
     client: &Arc<RwLock<T>>,
 ) -> Result<(), Box<dyn Error>> {
-    client.read().unwrap().delete_data(process).await?;
+    let client_clone = client.read().unwrap().clone();
+    client_clone.delete_data(process).await?;
 
     PROCESS_MAP.lock().unwrap().remove(process);
 
     info!("Process \"{}\" has been deleted.", process);
 
     if has_active_broadcaster() {
-        if let Ok(apps) = client.read().unwrap().get_all_apps().await {
-            if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps) {
-                broadcast_apps_update(apps_vec);
-            }
+        let client_clone = client.read().unwrap().clone();
+        if let Ok(apps) = client_clone.get_all_apps().await
+            && let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps)
+        {
+            broadcast_apps_update(apps_vec);
         }
     }
 

@@ -124,12 +124,11 @@ pub fn ux_are_processes_running<'a>(
 
         if let Some(aliases) = process_aliases {
             for target_process in processes {
-                if let Some(alias_list) = aliases.get(target_process) {
-                    if alias_list.contains(&process_name.to_string())
-                        && process.status() != ProcessStatus::Zombie
-                    {
-                        map.insert(target_process, true);
-                    }
+                if let Some(alias_list) = aliases.get(target_process)
+                    && alias_list.contains(&process_name.to_string())
+                    && process.status() != ProcessStatus::Zombie
+                {
+                    map.insert(target_process, true);
                 }
             }
         }

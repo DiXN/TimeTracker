@@ -1,5 +1,4 @@
 extern crate log;
-#[macro_use]
 extern crate lazy_static;
 #[macro_use]
 extern crate rust_embed;
@@ -8,7 +7,6 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::process;
-use std::time::Duration;
 
 use env_logger::{Builder, Env};
 

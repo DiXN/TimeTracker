@@ -196,14 +196,12 @@ impl SeaORMClient {
             eprintln!("Error updating timeline for {}: {}", item, e);
         }
 
-        if has_active_broadcaster() {
-            if let Ok(timeline_result) = rt.block_on(self.get_timeline_data(None, 30)) {
-                if let Ok(timeline_vec) =
-                    serde_json::from_value::<Vec<crate::structs::Timeline>>(timeline_result)
-                {
-                    broadcast_timeline_update(timeline_vec);
-                }
-            }
+        if has_active_broadcaster()
+            && let Ok(timeline_result) = rt.block_on(self.get_timeline_data(None, 30))
+            && let Ok(timeline_vec) =
+                serde_json::from_value::<Vec<crate::structs::Timeline>>(timeline_result)
+        {
+            broadcast_timeline_update(timeline_vec);
         }
     }
 
@@ -305,10 +303,10 @@ impl SeaORMClient {
             return;
         }
 
-        if let Ok(apps_result) = rt.block_on(self.get_all_apps()) {
-            if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps_result) {
-                broadcast_apps_update(apps_vec);
-            }
+        if let Ok(apps_result) = rt.block_on(self.get_all_apps())
+            && let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps_result)
+        {
+            broadcast_apps_update(apps_vec);
         }
     }
 }

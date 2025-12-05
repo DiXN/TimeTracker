@@ -17,7 +17,7 @@ use log::{error, info};
 
 pub fn init_rpc<T>(client: T)
 where
-    T: Restable + Sync + Send + 'static,
+    T: Restable + Clone + Sync + Send + 'static,
 {
     let client_arc = Arc::new(RwLock::new(client));
     thread::spawn(move || {
@@ -66,9 +66,9 @@ where
         io.add_method("get_processes", move |_| {
             let error_str = "Could not get processes!";
 
-            // Handle the async function using our runtime
+            let client_clone = get_ref.read().unwrap().clone();
             let result = rt_handle2.block_on(async {
-                get_ref.read().unwrap().get_processes().await
+                client_clone.get_processes().await
             });
 
             if let Ok(processes) = result {

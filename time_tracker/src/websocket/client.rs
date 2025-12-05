@@ -23,7 +23,7 @@ impl ClientConnectionHandler {
         state: Arc<RwLock<ServerState<T>>>,
         rt: tokio::runtime::Handle,
     ) where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let mut websocket = match accept(stream) {
             Ok(ws) => ws,
@@ -85,7 +85,7 @@ impl ClientConnectionHandler {
         rt: tokio::runtime::Handle,
         outgoing_receiver: mpsc::Receiver<String>,
     ) where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         loop {
             if let Ok(outgoing_message) = outgoing_receiver.try_recv()

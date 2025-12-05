@@ -44,7 +44,7 @@ impl MessageHandler {
         client_id: Option<u64>,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let text = msg.to_text()?;
         let command = WebSocketCommand::from_json(text)?;
@@ -224,26 +224,26 @@ impl MessageHandler {
         context_msg: &str,
     ) -> Result<R, anyhow::Error>
     where
-        T: Restable + Sync + Send,
-        F: FnOnce(Arc<RwLock<T>>) -> Fut,
+        T: Restable + Clone + Sync + Send,
+        F: FnOnce(T) -> Fut,
         Fut: std::future::Future<Output = Result<R, Box<dyn std::error::Error>>>,
     {
-        operation(client)
+        let client_clone = client.read().map_err(|e| anyhow!("Lock error: {}", e))?.clone();
+        operation(client_clone)
             .await
             .map_err(|e| anyhow!("{}: {}", context_msg, e))
     }
 
     async fn handle_get_apps<T>(state: &Arc<RwLock<ServerState<T>>>) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
 
         let apps_data = Self::call_db_method(
             client_arc,
             |c| async move {
-                let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                guard.get_all_apps().await
+                c.get_all_apps().await
             },
             "Failed to retrieve apps",
         )
@@ -266,15 +266,14 @@ impl MessageHandler {
         _payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
 
         let timeline_data = Self::call_db_method(
             client_arc,
             |c| async move {
-                let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                guard.get_timeline_with_checkpoints().await
+                c.get_timeline_with_checkpoints().await
             },
             "Failed to retrieve timeline data",
         )
@@ -293,7 +292,7 @@ impl MessageHandler {
         payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
         let params = Self::parse_payload(payload)?;
@@ -302,8 +301,7 @@ impl MessageHandler {
         let apps_data = Self::call_db_method(
             client_arc,
             |c| async move {
-                let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                guard.get_all_apps().await
+                c.get_all_apps().await
             },
             "Failed to retrieve apps",
         )
@@ -331,7 +329,7 @@ impl MessageHandler {
         payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
         let params = Self::parse_payload(payload)?;
@@ -353,7 +351,7 @@ impl MessageHandler {
         payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
         let params = Self::parse_payload(payload)?;
@@ -393,18 +391,18 @@ impl MessageHandler {
         payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
         let params = Self::parse_payload(payload)?;
+        let app_id = params.get("app_id").and_then(JsonValue::as_i64).map(|i| i as i32);
 
         let checkpoints_data = Self::call_db_method(
             client_arc,
             |c| async move {
-                let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                match params.get("app_id").and_then(JsonValue::as_i64).map(|i| i as i32) {
-                    Some(app_id) => guard.get_checkpoints_for_app(app_id).await,
-                    None => guard.get_all_checkpoints().await,
+                match app_id {
+                    Some(app_id) => c.get_checkpoints_for_app(app_id).await,
+                    None => c.get_all_checkpoints().await,
                 }
             },
             "Failed to retrieve checkpoints",
@@ -429,20 +427,19 @@ impl MessageHandler {
         payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
         let params = Self::parse_payload(payload)?;
         let name = Self::extract_string_param(&params, "name")?;
-        let description = params.get("description").and_then(JsonValue::as_str);
+        let description = params.get("description").and_then(JsonValue::as_str).map(|s| s.to_owned());
         let app_id = Self::extract_i32_param(&params, "app_id")?;
 
         let name_clone = name.clone();
         Self::call_db_method(
             Arc::clone(&client_arc),
             |c| async move {
-                let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                guard.create_checkpoint(&name_clone, description, app_id).await
+                c.create_checkpoint(&name_clone, description.as_deref(), app_id).await
             },
             &format!("Failed to create checkpoint '{}'", name),
         )
@@ -451,8 +448,7 @@ impl MessageHandler {
         let response = match Self::call_db_method(
             client_arc,
             |c| async move {
-                let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                guard.get_checkpoints_for_app(app_id).await
+                c.get_checkpoints_for_app(app_id).await
             },
             "Failed to get updated checkpoints",
         )
@@ -481,7 +477,7 @@ impl MessageHandler {
         payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
         let params = Self::parse_payload(payload)?;
@@ -494,8 +490,7 @@ impl MessageHandler {
         Self::call_db_method(
             client_arc,
             |c| async move {
-                let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                guard.set_checkpoint_active(checkpoint_id, is_active).await
+                c.set_checkpoint_active(checkpoint_id, is_active).await
             },
             &format!("Failed to update checkpoint {}", checkpoint_id),
         )
@@ -516,7 +511,7 @@ impl MessageHandler {
         payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
         let params = Self::parse_payload(payload)?;
@@ -525,8 +520,7 @@ impl MessageHandler {
         Self::call_db_method(
             client_arc,
             |c| async move {
-                let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                guard.delete_checkpoint(checkpoint_id).await
+                c.delete_checkpoint(checkpoint_id).await
             },
             &format!("Failed to delete checkpoint {}", checkpoint_id),
         )
@@ -546,35 +540,33 @@ impl MessageHandler {
         payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
         let params = Self::parse_payload(payload)?;
+        let app_id = params.get("app_id").and_then(JsonValue::as_i64).map(|i| i as i32);
 
-        let active_checkpoints_data = if let Some(app_id) = params
-            .get("app_id")
-            .and_then(JsonValue::as_i64)
-            .map(|i| i as i32)
-        {
-            Self::call_db_method(
-                client_arc,
-                |c| async move {
-                    let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                    guard.get_active_checkpoints_for_app(app_id).await
-                },
-                &format!("Failed to get active checkpoints for app {}", app_id),
-            )
-            .await?
-        } else {
-            Self::call_db_method(
-                client_arc,
-                |c| async move {
-                    let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                    guard.get_active_checkpoints().await
-                },
-                "Failed to get active checkpoints",
-            )
-            .await?
+        let active_checkpoints_data = match app_id {
+            Some(app_id) => {
+                Self::call_db_method(
+                    client_arc,
+                    |c| async move {
+                        c.get_active_checkpoints_for_app(app_id).await
+                    },
+                    &format!("Failed to get active checkpoints for app {}", app_id),
+                )
+                .await?
+            }
+            None => {
+                Self::call_db_method(
+                    client_arc,
+                    |c| async move {
+                        c.get_active_checkpoints().await
+                    },
+                    "Failed to get active checkpoints",
+                )
+                .await?
+            }
         };
 
         let active_checkpoints = active_checkpoints_data
@@ -595,15 +587,14 @@ impl MessageHandler {
         _payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
 
         let app_ids = Self::call_db_method(
             Arc::clone(&client_arc),
             |c| async move {
-                let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                guard.get_all_app_ids().await
+                c.get_all_app_ids().await
             },
             "Failed to retrieve app IDs",
         )
@@ -615,8 +606,7 @@ impl MessageHandler {
                 let session_count_value = Self::call_db_method(
                     client_arc,
                     |c| async move {
-                        let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                        guard.get_session_count_for_app(app_id).await
+                        c.get_session_count_for_app(app_id).await
                     },
                     &format!("Failed to get session count for app {}", app_id),
                 )
@@ -639,13 +629,13 @@ impl MessageHandler {
     }
 
     async fn calculate_app_statistics<T>(
-        client_guard: &T,
+        client: &T,
         app: &App,
     ) -> Result<AppStatistics, Box<dyn std::error::Error>>
     where
         T: Restable + Sync + Send,
     {
-        let timeline_data = client_guard
+        let timeline_data = client
             .get_timeline_data(app.name.as_deref(), 30)
             .await?;
 
@@ -680,17 +670,18 @@ impl MessageHandler {
         _payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
-        let state_guard = state
-            .read()
-            .map_err(|e| anyhow!("Failed to acquire state lock: {}", e))?;
-        let client_guard = state_guard
-            .client
-            .read()
-            .map_err(|e| anyhow!("Failed to acquire client lock: {}", e))?;
+        let client_clone = {
+            let state_guard = state
+                .read()
+                .map_err(|e| anyhow!("Failed to acquire state lock: {}", e))?;
+            state_guard.client.read()
+                .map_err(|e| anyhow!("Failed to acquire client lock: {}", e))?
+                .clone()
+        };
 
-        let apps_data = client_guard
+        let apps_data = client_clone
             .get_all_apps()
             .await
             .map_err(|e| anyhow!("Failed to retrieve apps: {}", e))?;
@@ -702,7 +693,7 @@ impl MessageHandler {
 
         let mut app_statistics = Vec::new();
         for app in apps {
-            match Self::calculate_app_statistics(&*client_guard, &app).await {
+            match Self::calculate_app_statistics(&client_clone, &app).await {
                 Ok(stats) => app_statistics.push(stats),
                 Err(e) => eprintln!(
                     "Failed to calculate statistics for app '{}': {}",
@@ -725,7 +716,7 @@ impl MessageHandler {
         payload: &str,
     ) -> HandlerResult
     where
-        T: Restable + Sync + Send,
+        T: Restable + Clone + Sync + Send,
     {
         let client_arc = Self::acquire_client_lock(state)?;
         let params = Self::parse_payload(payload)?;
@@ -734,8 +725,7 @@ impl MessageHandler {
         let durations_data = Self::call_db_method(
             client_arc,
             |c| async move {
-                let guard = c.read().map_err(|e| format!("Lock error: {}", e))?;
-                guard.get_checkpoint_durations_by_ids(&[checkpoint_id]).await
+                c.get_checkpoint_durations_by_ids(&[checkpoint_id]).await
             },
             &format!("Failed to get durations for checkpoint {}", checkpoint_id),
         )

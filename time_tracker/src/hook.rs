@@ -14,7 +14,7 @@ use log::{error};
 
 pub fn init_hook<T>(client: T)
 where
-    T: Restable + Sync + Send + 'static,
+    T: Restable + Clone + Sync + Send + 'static,
 {
     let client_arc = Arc::new(RwLock::new(client));
 

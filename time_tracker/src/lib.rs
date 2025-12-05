@@ -2,7 +2,6 @@
 //! This crate provides the core functionality for the TimeTracker application,
 //! including database access, REST API implementations, and time tracking utilities.
 
-#[macro_use]
 extern crate lazy_static;
 
 // Export the main modules
