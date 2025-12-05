@@ -6,23 +6,14 @@ use sea_orm::{
 };
 use serde_json::Value;
 
+use crate::entities::{apps, checkpoints, process_aliases, timeline};
 use crate::seaorm_client::SeaORMClient;
 
-// Import our entities
-use crate::entities::{apps, checkpoints, process_aliases, timeline};
-
-// Helper function to convert SeaORM model to JSON with custom error context
-pub fn model_to_json_with_context<T: serde::Serialize>(
-    model: T,
-    context: &str,
-) -> serde_json::Value {
-    match serde_json::to_value(model) {
-        Ok(val) => val,
-        Err(e) => {
-            eprintln!("Failed to serialize {}: {}", context, e);
-            serde_json::Value::Null
-        }
-    }
+pub fn model_to_json_with_context<T: serde::Serialize>(model: T, context: &str) -> Value {
+    serde_json::to_value(model).unwrap_or_else(|e| {
+        eprintln!("Failed to serialize {}: {}", context, e);
+        Value::Null
+    })
 }
 
 // Checkpoint queries
@@ -68,9 +59,9 @@ pub async fn set_checkpoint_active(
         .ok_or("Checkpoint not found")?
         .into();
 
-    // If a checkpoint is activated, all other active checkpoints for the same app should be deactivated
     if is_active {
         let app_id = checkpoint.app_id.clone().unwrap();
+        let now = chrono::Local::now().naive_local();
 
         let active_checkpoints = checkpoints::Entity::find()
             .filter(checkpoints::Column::AppId.eq(app_id))
@@ -79,7 +70,6 @@ pub async fn set_checkpoint_active(
             .all(&*client.connection)
             .await?;
 
-        let now = chrono::Local::now().naive_local();
         for active_checkpoint in active_checkpoints {
             let mut active_checkpoint_model: checkpoints::ActiveModel = active_checkpoint.into();
             active_checkpoint_model.is_active = ActiveValue::Set(Some(false));
@@ -89,16 +79,10 @@ pub async fn set_checkpoint_active(
         }
     }
 
-    checkpoint.is_active = ActiveValue::Set(Some(is_active));
-
-    // Update activated_at timestamp when activating/deactivating
     let now = chrono::Local::now().naive_local();
-    let activated_at = if is_active { Some(now) } else { None };
-    checkpoint.activated_at = ActiveValue::Set(activated_at);
-
-    // Also update last_updated timestamp
+    checkpoint.is_active = ActiveValue::Set(Some(is_active));
+    checkpoint.activated_at = ActiveValue::Set(is_active.then_some(now));
     checkpoint.last_updated = ActiveValue::Set(Some(now));
-
     checkpoint.update(&*client.connection).await?;
 
     Ok(serde_json::json!({"success": "Checkpoint status updated successfully"}))
@@ -214,11 +198,8 @@ pub async fn get_checkpoint_durations_by_ids(
         return Ok(Value::Array(vec![]));
     }
 
-    // Convert &[i32] to Vec<i32> for SeaORM
-    let ids: Vec<i32> = checkpoint_ids.to_vec();
-
     let checkpoints: Vec<checkpoints::Model> = checkpoints::Entity::find()
-        .filter(checkpoints::Column::Id.is_in(ids))
+        .filter(checkpoints::Column::Id.is_in(checkpoint_ids.to_vec()))
         .order_by_desc(checkpoints::Column::LastUpdated)
         .all(&*client.connection)
         .await?;
@@ -231,7 +212,6 @@ pub async fn get_checkpoint_durations_by_ids(
     Ok(Value::Array(json_values))
 }
 
-/// Get timeline entries with their associated checkpoints
 pub async fn get_timeline_with_checkpoints(client: &SeaORMClient) -> Result<Value, Box<dyn Error>> {
     let timeline_entries: Vec<(timeline::Model, Option<checkpoints::Model>)> =
         timeline::Entity::find()
@@ -243,15 +223,14 @@ pub async fn get_timeline_with_checkpoints(client: &SeaORMClient) -> Result<Valu
     let json_values = timeline_entries
         .into_iter()
         .map(|(timeline, checkpoint)| {
-            let mut timeline_json =
-                serde_json::to_value(&timeline).unwrap_or(serde_json::Value::Null);
-            if let Some(checkpoint_model) = checkpoint {
-                if let Some(obj) = timeline_json.as_object_mut() {
-                    obj.insert(
-                        "checkpoint".to_string(),
-                        model_to_json_with_context(checkpoint_model, "checkpoint"),
-                    );
-                }
+            let mut timeline_json = serde_json::to_value(&timeline).unwrap_or(Value::Null);
+            if let (Some(obj), Some(checkpoint_model)) =
+                (timeline_json.as_object_mut(), checkpoint)
+            {
+                obj.insert(
+                    "checkpoint".to_string(),
+                    model_to_json_with_context(checkpoint_model, "checkpoint"),
+                );
             }
             timeline_json
         })

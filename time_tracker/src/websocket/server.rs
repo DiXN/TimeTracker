@@ -1,21 +1,21 @@
 use std::collections::HashMap;
 use std::net::TcpListener;
-use std::sync::{Arc, RwLock, Mutex};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
-use crate::restable::Restable;
-use crate::structs::{TrackingStatus, App, Timeline};
 use log::{error, info};
+
+use super::broadcast::{BroadcastMessage, ClientId, SubscriptionBroadcaster, SubscriptionTopic, WebSocketClient};
+use super::broadcast_logger::log_broadcast_status;
+use super::client::ClientConnectionHandler;
+use super::tracking_notifier;
+use crate::restable::Restable;
+use crate::structs::{App, Timeline, TrackingStatus};
 
 #[cfg(feature = "memory")]
 use crate::time_tracking::TimeTrackingConfig;
-
-use super::broadcast::{BroadcastMessage, WebSocketClient, ClientId, SubscriptionBroadcaster, SubscriptionTopic};
-use super::client::ClientConnectionHandler;
-use super::tracking_notifier;
-use super::broadcast_logger::log_broadcast_status;
 
 pub struct ServerState<T: Restable> {
     pub client: Arc<RwLock<T>>,
@@ -29,7 +29,7 @@ pub struct ServerState<T: Restable> {
 impl<T: Restable> ServerState<T> {
     pub fn new(
         client: T,
-        #[cfg(feature = "memory")] config: Arc<RwLock<TimeTrackingConfig>>
+        #[cfg(feature = "memory")] config: Arc<RwLock<TimeTrackingConfig>>,
     ) -> (Self, Receiver<BroadcastMessage>) {
         let (broadcast_sender, broadcast_receiver) = mpsc::channel();
         let state = Self {
@@ -52,23 +52,24 @@ impl<T: Restable> ServerState<T> {
 
     pub fn add_client(&self, client: WebSocketClient) {
         let client_id = client.id;
-        let mut clients = self.clients.lock().unwrap();
-        clients.insert(client_id, client);
-        let _ = self.broadcast_sender.send(BroadcastMessage::ClientConnected(client_id));
+        self.clients.lock().unwrap().insert(client_id, client);
+        let _ = self
+            .broadcast_sender
+            .send(BroadcastMessage::ClientConnected(client_id));
     }
 
     pub fn remove_client(&self, client_id: ClientId) {
-        let mut clients = self.clients.lock().unwrap();
-        clients.remove(&client_id);
-        let _ = self.broadcast_sender.send(BroadcastMessage::ClientDisconnected(client_id));
+        self.clients.lock().unwrap().remove(&client_id);
+        let _ = self
+            .broadcast_sender
+            .send(BroadcastMessage::ClientDisconnected(client_id));
     }
 
     pub fn broadcast_tracking_status(&self, status: TrackingStatus) {
-        {
-            let mut tracking_status = self.tracking_status.write().unwrap();
-            *tracking_status = status.clone();
-        }
-        let _ = self.broadcast_sender.send(BroadcastMessage::TrackingStatusUpdate(status));
+        *self.tracking_status.write().unwrap() = status.clone();
+        let _ = self
+            .broadcast_sender
+            .send(BroadcastMessage::TrackingStatusUpdate(status));
     }
 
     pub fn broadcast_apps_update(&self, apps: Vec<App>) {
@@ -76,15 +77,21 @@ impl<T: Restable> ServerState<T> {
     }
 
     pub fn broadcast_timeline_update(&self, timeline: Vec<Timeline>) {
-        let _ = self.broadcast_sender.send(BroadcastMessage::TimelineUpdate(timeline));
+        let _ = self
+            .broadcast_sender
+            .send(BroadcastMessage::TimelineUpdate(timeline));
     }
 
     pub fn subscribe_client(&self, client_id: ClientId, topics: Vec<SubscriptionTopic>) {
-        let _ = self.broadcast_sender.send(BroadcastMessage::Subscribe { client_id, topics });
+        let _ = self
+            .broadcast_sender
+            .send(BroadcastMessage::Subscribe { client_id, topics });
     }
 
     pub fn unsubscribe_client(&self, client_id: ClientId, topics: Vec<SubscriptionTopic>) {
-        let _ = self.broadcast_sender.send(BroadcastMessage::Unsubscribe { client_id, topics });
+        let _ = self
+            .broadcast_sender
+            .send(BroadcastMessage::Unsubscribe { client_id, topics });
     }
 
     pub fn get_current_tracking_status(&self) -> TrackingStatus {
@@ -103,15 +110,15 @@ impl<T: Restable> ServerState<T> {
 
 pub fn init_web_socket<T>(
     client: T,
-    #[cfg(feature = "memory")] config: Arc<RwLock<TimeTrackingConfig>>
+    #[cfg(feature = "memory")] config: Arc<RwLock<TimeTrackingConfig>>,
 ) -> Arc<RwLock<ServerState<T>>>
 where
     T: Restable + Sync + Send + 'static,
 {
-    let (server_state, broadcast_receiver) = ServerState::new(client, #[cfg(feature = "memory")] config);
+    let (server_state, broadcast_receiver) =
+        ServerState::new(client, #[cfg(feature = "memory")] config);
     let state_arc = Arc::new(RwLock::new(server_state));
 
-    // Register the WebSocket notifier for on-demand broadcasting
     tracking_notifier::register_websocket_notifier(&state_arc);
 
     let state_for_broadcast = Arc::clone(&state_arc);
@@ -131,21 +138,16 @@ fn start_websocket_server<T>(state: Arc<RwLock<ServerState<T>>>)
 where
     T: Restable + Sync + Send + 'static,
 {
-    let rt = match tokio::runtime::Runtime::new() {
-        Ok(runtime) => runtime,
-        Err(e) => {
-            error!("Failed to create async runtime: {}", e);
-            return;
-        }
+    let Ok(rt) = tokio::runtime::Runtime::new() else {
+        error!("Failed to create async runtime");
+        return;
     };
 
-    let server = match TcpListener::bind("0.0.0.0:6754") {
-        Ok(server) => server,
-        Err(e) => {
-            error!("Failed to bind WebSocket server: {}", e);
-            return;
-        }
+    let Ok(server) = TcpListener::bind("0.0.0.0:6754") else {
+        error!("Failed to bind WebSocket server");
+        return;
     };
+
     info!("WebSocket server started on 0.0.0.0:6754");
     log_broadcast_status();
 
@@ -160,7 +162,12 @@ where
                 let rt_clone = rt.handle().clone();
 
                 thread::spawn(move || {
-                    ClientConnectionHandler::handle_connection(stream, client_id, state_clone, rt_clone);
+                    ClientConnectionHandler::handle_connection(
+                        stream,
+                        client_id,
+                        state_clone,
+                        rt_clone,
+                    );
                 });
             }
             Err(e) => {
