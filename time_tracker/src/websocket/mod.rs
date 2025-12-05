@@ -16,6 +16,7 @@ pub use broadcast_logger::{
 pub use server::{init_web_socket, ServerState};
 pub use tracking_notifier::has_active_broadcaster;
 
+#[allow(dead_code)]
 pub fn update_tracking_status<T>(state: &Arc<RwLock<ServerState<T>>>, new_status: TrackingStatus)
 where
     T: Restable + Sync + Send,

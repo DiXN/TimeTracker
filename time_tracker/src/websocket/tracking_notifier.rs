@@ -6,6 +6,7 @@ use super::server::ServerState;
 use crate::restable::Restable;
 use crate::structs::{App, Timeline, TrackingStatus};
 
+#[allow(dead_code)]
 pub trait TrackingStatusNotifier: Send + Sync {
     fn notify_tracking_status(&self, status: TrackingStatus);
 }
@@ -76,6 +77,7 @@ pub fn register_websocket_notifier<T: Restable + Sync + Send + 'static>(
     }
 }
 
+#[allow(dead_code)]
 pub fn notify_tracking_status(status: TrackingStatus) {
     if let Ok(guard) = NOTIFIER.read()
         && let Some(notifier) = guard.as_ref()
@@ -84,6 +86,7 @@ pub fn notify_tracking_status(status: TrackingStatus) {
     }
 }
 
+#[allow(dead_code)]
 pub fn has_active_notifier() -> bool {
     NOTIFIER.read().map(|g| g.is_some()).unwrap_or(false)
 }

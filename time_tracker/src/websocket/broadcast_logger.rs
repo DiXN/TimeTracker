@@ -81,17 +81,20 @@ pub fn broadcast_tracking_status_update(status: TrackingStatus) {
     internal_broadcast_tracking_status_update(status);
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct BroadcastStats {
     pub has_active_broadcaster: bool,
 }
 
+#[allow(dead_code)]
 pub fn get_broadcast_stats() -> BroadcastStats {
     BroadcastStats {
         has_active_broadcaster: has_active_broadcaster(),
     }
 }
 
+#[allow(dead_code)]
 pub fn log_broadcast_status() {
     if has_active_broadcaster() {
         info!("WebSocket broadcasting system: ACTIVE - ready to broadcast updates");
@@ -100,6 +103,7 @@ pub fn log_broadcast_status() {
     }
 }
 
+#[allow(dead_code)]
 pub fn with_broadcast_logging<F, T>(operation_name: &str, operation: F) -> Result<T, String>
 where
     F: FnOnce() -> Result<T, Box<dyn std::error::Error>>,
