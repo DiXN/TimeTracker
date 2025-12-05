@@ -45,7 +45,6 @@ lazy_static! {
     static ref PAUSE: RwLock<bool> = RwLock::new(false);
 }
 
-//"time_tracker" is not paused.
 macro_rules! active {
   { $($b:tt)* } => {{
     if !(*PAUSE.read().unwrap()) {
@@ -71,7 +70,6 @@ where
 
     let (spawn_tx, spawn_rx) = unbounded();
 
-    // Create a shared config that can be updated
     let shared_config = Arc::new(RwLock::new(config));
 
     init_rpc(client.clone());
@@ -96,7 +94,6 @@ where
 
             active! { tx_arc_clone.send((p.to_owned(), ReceiveTypes::Launches)).unwrap(); };
 
-            // Only broadcast if there are active WebSocket clients
             if has_active_broadcaster() {
                 let start_time = chrono::Local::now()
                     .format("%Y-%m-%dT%H:%M:%S%.f")
@@ -116,7 +113,6 @@ where
             info!("Process: {} has started. at {}", p, chrono::Local::now());
 
             loop {
-                // Read the current config values (only for memory feature)
                 #[cfg(feature = "memory")]
                 let tracking_delay_ms = {
                     let config = config_clone.read().unwrap();
@@ -132,7 +128,6 @@ where
                       tx_arc_clone.send((p.to_owned(), ReceiveTypes::Timeline)).unwrap();
                       counter += 1;
 
-                      // Only broadcast if there are active WebSocket clients
                       if has_active_broadcaster() {
                           broadcast_tracking_status_update(TrackingStatus {
                               is_tracking: true,
@@ -153,7 +148,6 @@ where
 
             active! { tx_arc_clone.send((format!("{};{}", p.to_owned(), counter), ReceiveTypes::LongestSession)).unwrap(); }
 
-            // Only broadcast if there are active WebSocket clients
             if has_active_broadcaster() {
                 broadcast_tracking_status_update(TrackingStatus {
                     is_tracking: false,
@@ -180,28 +174,26 @@ fn check_processes<T: Restable + Send + 'static>(
     #[cfg(not(feature = "memory"))]
     let check_delay_ms = config.read().unwrap().check_delay_ms;
 
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
     thread::spawn(move || {
         loop {
-            let p_map = PROCESS_MAP.lock().unwrap();
+            let app_names = {
+                let p_map = PROCESS_MAP.lock().unwrap();
+                p_map.keys().cloned().collect::<Vec<String>>()
+            };
 
-            let app_names = p_map.keys().cloned().collect::<Vec<String>>();
             let processes = app_names.clone();
 
-            drop(p_map);
-
-            // Read the current config values (only for memory feature)
             #[cfg(feature = "memory")]
             let check_delay_ms = {
                 let config = config.read().unwrap();
                 config.check_delay_ms
             };
 
-            // Get process aliases from database
-            let process_aliases = {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(client.get_process_aliases_by_app_names(&app_names))
-                    .unwrap_or_default()
-            };
+            let process_aliases = rt
+                .block_on(client.get_process_aliases_by_app_names(&app_names))
+                .unwrap_or_default();
 
             if let Ok(m) = are_processes_running(&processes[..], Some(&process_aliases)) {
                 if m.is_empty() {
@@ -209,18 +201,24 @@ fn check_processes<T: Restable + Send + 'static>(
                     continue;
                 }
 
-                for (p, (fst, snd)) in PROCESS_MAP.lock().unwrap().iter_mut() {
-                    if *m.get(p).unwrap() {
-                        *fst = true;
-                        if !*snd {
-                            *snd = true;
-                            spawn_tx.send(p.to_owned()).unwrap();
+                let mut to_spawn = Vec::new();
+                {
+                    let mut p_map = PROCESS_MAP.lock().unwrap();
+                    for (p, (fst, snd)) in p_map.iter_mut() {
+                        if *m.get(p).unwrap() {
+                            *fst = true;
+                            if !*snd {
+                                *snd = true;
+                                to_spawn.push(p.to_owned());
+                            }
+                        } else {
+                            *fst = false;
                         }
-                    } else {
-                        *fst = false;
                     }
+                }
 
-                    //debug!("{}, {}, {}", p, fst, snd);
+                for p in to_spawn {
+                    spawn_tx.send(p).unwrap();
                 }
             }
 
@@ -266,7 +264,6 @@ pub async fn add_process<T: Restable>(
 
     info!("Process \"{}\" has been added.", process);
 
-    // Broadcast apps update if there are active WebSocket clients
     if has_active_broadcaster() {
         if let Ok(apps) = client.read().unwrap().get_all_apps().await {
             if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps) {
@@ -288,7 +285,6 @@ pub async fn delete_process<T: Restable>(
 
     info!("Process \"{}\" has been deleted.", process);
 
-    // Broadcast apps update if there are active WebSocket clients
     if has_active_broadcaster() {
         if let Ok(apps) = client.read().unwrap().get_all_apps().await {
             if let Ok(apps_vec) = serde_json::from_value::<Vec<crate::structs::App>>(apps) {
