@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use log::{error, info};
 
-use super::broadcast::{BroadcastMessage, ClientId, SubscriptionBroadcaster, SubscriptionTopic, WebSocketClient};
+use super::broadcast::{
+    BroadcastMessage, ClientId, SubscriptionBroadcaster, SubscriptionTopic, WebSocketClient,
+};
 use super::broadcast_logger::log_broadcast_status;
 use super::client::ClientConnectionHandler;
 use super::tracking_notifier;
@@ -52,21 +54,27 @@ impl<T: Restable> ServerState<T> {
 
     pub fn add_client(&self, client: WebSocketClient) {
         let client_id = client.id;
-        self.clients.lock().unwrap().insert(client_id, client);
+        if let Ok(mut clients) = self.clients.lock() {
+            clients.insert(client_id, client);
+        }
         let _ = self
             .broadcast_sender
             .send(BroadcastMessage::ClientConnected(client_id));
     }
 
     pub fn remove_client(&self, client_id: ClientId) {
-        self.clients.lock().unwrap().remove(&client_id);
+        if let Ok(mut clients) = self.clients.lock() {
+            clients.remove(&client_id);
+        }
         let _ = self
             .broadcast_sender
             .send(BroadcastMessage::ClientDisconnected(client_id));
     }
 
     pub fn broadcast_tracking_status(&self, status: TrackingStatus) {
-        *self.tracking_status.write().unwrap() = status.clone();
+        if let Ok(mut tracking) = self.tracking_status.write() {
+            *tracking = status.clone();
+        }
         let _ = self
             .broadcast_sender
             .send(BroadcastMessage::TrackingStatusUpdate(status));
@@ -95,15 +103,25 @@ impl<T: Restable> ServerState<T> {
     }
 
     pub fn get_current_tracking_status(&self) -> TrackingStatus {
-        self.tracking_status.read().unwrap().clone()
+        self.tracking_status
+            .read()
+            .map(|s| s.clone())
+            .unwrap_or_else(|_| TrackingStatus {
+                is_tracking: false,
+                is_paused: false,
+                current_app: None,
+                current_session_duration: 0,
+                session_start_time: None,
+                active_checkpoint_ids: vec![],
+            })
     }
 
-    pub fn clients(&self) -> &Arc<Mutex<HashMap<ClientId, WebSocketClient>>> {
+    pub const fn clients(&self) -> &Arc<Mutex<HashMap<ClientId, WebSocketClient>>> {
         &self.clients
     }
 
     #[cfg(feature = "memory")]
-    pub fn config(&self) -> &Arc<RwLock<TimeTrackingConfig>> {
+    pub const fn config(&self) -> &Arc<RwLock<TimeTrackingConfig>> {
         &self.config
     }
 }
@@ -115,8 +133,11 @@ pub fn init_web_socket<T>(
 where
     T: Restable + Sync + Send + 'static,
 {
-    let (server_state, broadcast_receiver) =
-        ServerState::new(client, #[cfg(feature = "memory")] config);
+    let (server_state, broadcast_receiver) = ServerState::new(
+        client,
+        #[cfg(feature = "memory")]
+        config,
+    );
     let state_arc = Arc::new(RwLock::new(server_state));
 
     tracking_notifier::register_websocket_notifier(&state_arc);

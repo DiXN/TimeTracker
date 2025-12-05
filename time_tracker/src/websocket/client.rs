@@ -1,18 +1,18 @@
 use std::collections::HashSet;
 use std::net::TcpStream;
-use std::sync::{Arc, RwLock};
 use std::sync::mpsc;
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
-use tungstenite::{Message, accept};
 use log::{error, info};
+use tungstenite::{accept, Message};
 
+use super::broadcast::{ClientId, WebSocketClient};
+use super::handlers::MessageHandler;
+use super::server::ServerState;
 use crate::restable::Restable;
 use crate::structs::{TrackingStatus, WebSocketMessage};
-use super::broadcast::{WebSocketClient, ClientId, SubscriptionTopic};
-use super::server::ServerState;
-use super::handlers::MessageHandler;
 
 pub struct ClientConnectionHandler;
 
@@ -35,46 +35,34 @@ impl ClientConnectionHandler {
 
         info!("New WebSocket connection established: {}", client_id);
 
-        let (client_sender, _client_receiver) = mpsc::channel::<String>();
-
+        let (client_sender, _) = mpsc::channel::<String>();
         let client = WebSocketClient {
             id: client_id,
             sender: client_sender,
             subscriptions: Arc::new(RwLock::new(HashSet::new())),
         };
 
-        {
-            let state_guard = match state.read() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    error!("Failed to acquire read lock: {}", e);
-                    return;
-                }
-            };
-            state_guard.add_client(client);
+        let Ok(state_guard) = state.read() else {
+            error!("Failed to acquire read lock");
+            return;
+        };
 
-            let current_status = state_guard.get_current_tracking_status();
-            if let Err(e) = Self::send_initial_status(&mut websocket, &current_status) {
-                error!("Failed to send initial tracking status: {}", e);
-                state_guard.remove_client(client_id);
-                return;
-            }
+        state_guard.add_client(client);
+
+        let current_status = state_guard.get_current_tracking_status();
+        if Self::send_initial_status(&mut websocket, &current_status).is_err() {
+            state_guard.remove_client(client_id);
+            return;
         }
+        drop(state_guard);
 
         let (outgoing_sender, outgoing_receiver) = mpsc::channel::<String>();
 
+        if let Ok(state_guard) = state.read()
+            && let Ok(mut clients_guard) = state_guard.clients().lock()
+            && let Some(client) = clients_guard.get_mut(&client_id)
         {
-            let state_guard = match state.read() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    error!("Failed to acquire read lock: {}", e);
-                    return;
-                }
-            };
-            let mut clients_guard = state_guard.clients().lock().unwrap();
-            if let Some(client) = clients_guard.get_mut(&client_id) {
-                client.sender = outgoing_sender;
-            }
+            client.sender = outgoing_sender;
         }
 
         Self::handle_client_messages(websocket, client_id, state, rt, outgoing_receiver);
@@ -100,47 +88,44 @@ impl ClientConnectionHandler {
         T: Restable + Sync + Send,
     {
         loop {
-            if let Ok(outgoing_message) = outgoing_receiver.try_recv() {
-                if let Err(e) = websocket.send(Message::text(outgoing_message)) {
-                    error!("Failed to send outgoing message to client {}: {}", client_id, e);
-                    break;
-                }
+            if let Ok(outgoing_message) = outgoing_receiver.try_recv()
+                && websocket.send(Message::text(outgoing_message)).is_err()
+            {
+                break;
             }
 
             match websocket.read() {
+                Ok(msg) if msg.is_close() => {
+                    info!("WebSocket connection closed for client: {}", client_id);
+                    break;
+                }
+                Ok(msg) if !msg.is_text() && !msg.is_binary() => continue,
                 Ok(msg) => {
-                    if msg.is_close() {
-                        info!("WebSocket connection closed for client: {}", client_id);
-                        break;
-                    }
-
-                    if !msg.is_text() && !msg.is_binary() {
-                        continue;
-                    }
-
                     let response = rt.block_on(async {
-                        MessageHandler::handle_message_with_client_id(&msg, &state, Some(client_id)).await
+                        MessageHandler::handle_message_with_client_id(&msg, &state, Some(client_id))
+                            .await
                     });
 
                     let response_text = match response {
                         Ok(text) => text,
                         Err(e) => {
-                            let error_msg = WebSocketMessage::error(&e.to_string());
-                            match error_msg.to_json() {
-                                Ok(error_json) => error_json,
-                                Err(_) => continue,
-                            }
+                            let Ok(error_json) =
+                                WebSocketMessage::error(&e.to_string()).to_json()
+                            else {
+                                continue;
+                            };
+                            error_json
                         }
                     };
 
-                    if let Err(e) = websocket.send(Message::text(response_text)) {
-                        error!("Failed to send WebSocket response to client {}: {}", client_id, e);
+                    if websocket.send(Message::text(response_text)).is_err() {
                         break;
                     }
                 }
-                Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(tungstenite::Error::Io(ref e))
+                    if e.kind() == std::io::ErrorKind::WouldBlock =>
+                {
                     thread::sleep(Duration::from_millis(10));
-                    continue;
                 }
                 Err(e) => {
                     error!("WebSocket error for client {}: {}", client_id, e);
@@ -149,11 +134,7 @@ impl ClientConnectionHandler {
             }
         }
 
-        {
-            let state_guard = match state.read() {
-                Ok(guard) => guard,
-                Err(_) => return,
-            };
+        if let Ok(state_guard) = state.read() {
             state_guard.remove_client(client_id);
         }
         info!("Client {} disconnected", client_id);

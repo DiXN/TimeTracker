@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, RwLock};
 
@@ -17,16 +18,20 @@ pub enum SubscriptionTopic {
     TrackingStatus,
 }
 
-impl SubscriptionTopic {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for SubscriptionTopic {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "apps" => Some(Self::Apps),
-            "timeline" => Some(Self::Timeline),
-            "tracking_status" => Some(Self::TrackingStatus),
-            _ => None,
+            "apps" => Ok(Self::Apps),
+            "timeline" => Ok(Self::Timeline),
+            "tracking_status" => Ok(Self::TrackingStatus),
+            _ => Err(()),
         }
     }
+}
 
+impl SubscriptionTopic {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Apps => "apps",
@@ -43,8 +48,14 @@ pub enum BroadcastMessage {
     TimelineUpdate(Vec<Timeline>),
     ClientConnected(ClientId),
     ClientDisconnected(ClientId),
-    Subscribe { client_id: ClientId, topics: Vec<SubscriptionTopic> },
-    Unsubscribe { client_id: ClientId, topics: Vec<SubscriptionTopic> },
+    Subscribe {
+        client_id: ClientId,
+        topics: Vec<SubscriptionTopic>,
+    },
+    Unsubscribe {
+        client_id: ClientId,
+        topics: Vec<SubscriptionTopic>,
+    },
 }
 
 #[derive(Clone)]
@@ -59,26 +70,23 @@ pub struct SubscriptionBroadcaster;
 impl SubscriptionBroadcaster {
     pub fn handle_broadcasts<T>(
         receiver: Receiver<BroadcastMessage>,
-        state: Arc<RwLock<ServerState<T>>>
+        state: Arc<RwLock<ServerState<T>>>,
     ) where
         T: Restable + Sync + Send,
     {
         for message in receiver {
             match message {
                 BroadcastMessage::TrackingStatusUpdate(status) => {
-                    Self::broadcast_to_subscribers(&state, SubscriptionTopic::TrackingStatus, |_| {
-                        Self::create_tracking_status_message(&status)
-                    });
+                    let msg = Self::create_tracking_status_message(&status);
+                    Self::broadcast_to_subscribers(&state, SubscriptionTopic::TrackingStatus, msg);
                 }
                 BroadcastMessage::AppsUpdate(apps) => {
-                    Self::broadcast_to_subscribers(&state, SubscriptionTopic::Apps, |_| {
-                        Self::create_apps_message(&apps)
-                    });
+                    let msg = Self::create_apps_message(&apps);
+                    Self::broadcast_to_subscribers(&state, SubscriptionTopic::Apps, msg);
                 }
                 BroadcastMessage::TimelineUpdate(timeline) => {
-                    Self::broadcast_to_subscribers(&state, SubscriptionTopic::Timeline, |_| {
-                        Self::create_timeline_message(&timeline)
-                    });
+                    let msg = Self::create_timeline_message(&timeline);
+                    Self::broadcast_to_subscribers(&state, SubscriptionTopic::Timeline, msg);
                 }
                 BroadcastMessage::ClientConnected(client_id) => {
                     log::info!("Client {} connected to broadcast system", client_id);
@@ -87,10 +95,10 @@ impl SubscriptionBroadcaster {
                     log::info!("Client {} disconnected from broadcast system", client_id);
                 }
                 BroadcastMessage::Subscribe { client_id, topics } => {
-                    Self::handle_subscription(&state, client_id, topics, true);
+                    Self::handle_subscription(&state, client_id, &topics, true);
                 }
                 BroadcastMessage::Unsubscribe { client_id, topics } => {
-                    Self::handle_subscription(&state, client_id, topics, false);
+                    Self::handle_subscription(&state, client_id, &topics, false);
                 }
             }
         }
@@ -99,7 +107,7 @@ impl SubscriptionBroadcaster {
     fn handle_subscription<T>(
         state: &Arc<RwLock<ServerState<T>>>,
         client_id: ClientId,
-        topics: Vec<SubscriptionTopic>,
+        topics: &[SubscriptionTopic],
         subscribe: bool,
     ) where
         T: Restable + Sync + Send,
@@ -109,49 +117,55 @@ impl SubscriptionBroadcaster {
             return;
         };
 
-        let Ok(clients_guard) = state_guard.clients().lock() else {
-            error!("Failed to acquire clients lock for subscription");
-            return;
+        let subscriptions = {
+            let Ok(clients_guard) = state_guard.clients().lock() else {
+                error!("Failed to acquire clients lock for subscription");
+                return;
+            };
+
+            let Some(client) = clients_guard.get(&client_id) else {
+                error!("Client {} not found for subscription operation", client_id);
+                return;
+            };
+
+            Arc::clone(&client.subscriptions)
         };
 
-        let Some(client) = clients_guard.get(&client_id) else {
-            error!("Client {} not found for subscription operation", client_id);
-            return;
-        };
-
-        let Ok(mut subscriptions) = client.subscriptions.write() else {
-            error!(
-                "Failed to acquire subscription lock for client {}",
-                client_id
-            );
+        let Ok(mut subs) = subscriptions.write() else {
+            error!("Failed to acquire subscription lock for client {}", client_id);
             return;
         };
 
         for topic in topics {
             if subscribe {
-                subscriptions.insert(topic.clone());
+                subs.insert(topic.clone());
                 log::info!("Client {} subscribed to {}", client_id, topic.as_str());
             } else {
-                subscriptions.remove(&topic);
+                subs.remove(topic);
                 log::info!("Client {} unsubscribed from {}", client_id, topic.as_str());
             }
         }
     }
 
-    fn broadcast_to_subscribers<T, F>(
+    fn broadcast_to_subscribers<T>(
         state: &Arc<RwLock<ServerState<T>>>,
         topic: SubscriptionTopic,
-        message_creator: F,
+        message: Option<String>,
     ) where
         T: Restable + Sync + Send,
-        F: Fn(ClientId) -> Option<String>,
     {
+        let Some(message) = message else {
+            return;
+        };
+
         let clients = {
             let Ok(state_guard) = state.read() else {
                 error!("Failed to acquire read lock for broadcast");
                 return;
             };
-            let clients_guard = state_guard.clients().lock().unwrap();
+            let Ok(clients_guard) = state_guard.clients().lock() else {
+                return;
+            };
             clients_guard
                 .iter()
                 .map(|(id, client)| (*id, client.clone()))
@@ -164,20 +178,10 @@ impl SubscriptionBroadcaster {
                 .subscriptions
                 .read()
                 .map(|subs| subs.contains(&topic))
-                .unwrap_or_else(|e| {
-                    error!(
-                        "Failed to read subscriptions for client {}: {}",
-                        client_id, e
-                    );
-                    false
-                });
+                .unwrap_or(false);
 
-            if is_subscribed {
-                if let Some(message) = message_creator(client_id) {
-                    if client.sender.send(message).is_err() {
-                        disconnected_clients.push(client_id);
-                    }
-                }
+            if is_subscribed && client.sender.send(message.clone()).is_err() {
+                disconnected_clients.push(client_id);
             }
         }
 
@@ -185,7 +189,9 @@ impl SubscriptionBroadcaster {
             let Ok(state_guard) = state.read() else {
                 return;
             };
-            let mut clients_guard = state_guard.clients().lock().unwrap();
+            let Ok(mut clients_guard) = state_guard.clients().lock() else {
+                return;
+            };
             for client_id in disconnected_clients {
                 clients_guard.remove(&client_id);
                 log::info!("Removed disconnected client: {}", client_id);
@@ -194,35 +200,40 @@ impl SubscriptionBroadcaster {
     }
 
     pub fn create_tracking_status_message(status: &TrackingStatus) -> Option<String> {
-        let status_json = serde_json::to_string(status)
+        serde_json::to_string(status)
             .inspect_err(|e| error!("Failed to serialize tracking status: {}", e))
-            .ok()?;
-
-        WebSocketMessage::tracking_status_update(&status_json)
-            .to_json()
-            .inspect_err(|e| error!("Failed to serialize tracking status broadcast message: {}", e))
             .ok()
+            .and_then(|json| {
+                WebSocketMessage::tracking_status_update(&json)
+                    .to_json()
+                    .inspect_err(|e| {
+                        error!("Failed to serialize tracking status broadcast message: {}", e)
+                    })
+                    .ok()
+            })
     }
 
     pub fn create_apps_message(apps: &[App]) -> Option<String> {
-        let apps_json = serde_json::to_string(apps)
+        serde_json::to_string(apps)
             .inspect_err(|e| error!("Failed to serialize apps: {}", e))
-            .ok()?;
-
-        WebSocketMessage::apps_list(&apps_json)
-            .to_json()
-            .inspect_err(|e| error!("Failed to serialize apps broadcast message: {}", e))
             .ok()
+            .and_then(|json| {
+                WebSocketMessage::apps_list(&json)
+                    .to_json()
+                    .inspect_err(|e| error!("Failed to serialize apps broadcast message: {}", e))
+                    .ok()
+            })
     }
 
     pub fn create_timeline_message(timeline: &[Timeline]) -> Option<String> {
-        let timeline_json = serde_json::to_string(timeline)
+        serde_json::to_string(timeline)
             .inspect_err(|e| error!("Failed to serialize timeline: {}", e))
-            .ok()?;
-
-        WebSocketMessage::timeline_data(&timeline_json)
-            .to_json()
-            .inspect_err(|e| error!("Failed to serialize timeline broadcast message: {}", e))
             .ok()
+            .and_then(|json| {
+                WebSocketMessage::timeline_data(&json)
+                    .to_json()
+                    .inspect_err(|e| error!("Failed to serialize timeline broadcast message: {}", e))
+                    .ok()
+            })
     }
 }

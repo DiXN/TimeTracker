@@ -20,7 +20,7 @@ use crate::rpc::init_rpc;
 use crate::structs::TrackingStatus;
 use crate::websocket::{
     broadcast_apps_update, broadcast_tracking_status_update, has_active_broadcaster,
-    has_active_notifier, init_web_socket,
+    init_web_socket,
 };
 use crate::{box_err, error::AddError};
 
