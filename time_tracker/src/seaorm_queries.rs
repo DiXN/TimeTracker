@@ -5,13 +5,14 @@ use sea_orm::{
     QueryOrder, QuerySelect,
 };
 use serde_json::Value;
+use log::{error, info};
 
 use crate::entities::{apps, checkpoints, process_aliases, timeline};
 use crate::seaorm_client::SeaORMClient;
 
 pub fn model_to_json_with_context<T: serde::Serialize>(model: T, context: &str) -> Value {
     serde_json::to_value(model).unwrap_or_else(|e| {
-        eprintln!("Failed to serialize {}: {}", context, e);
+        error!("Failed to serialize {}: {}", context, e);
         Value::Null
     })
 }
@@ -44,6 +45,7 @@ pub async fn create_checkpoint(
     checkpoints::Entity::insert(checkpoint)
         .exec(&*client.connection)
         .await?;
+    info!("Checkpoint created for app_id {}: {}", app_id, name);
 
     Ok(serde_json::json!({"success": "Checkpoint created successfully"}))
 }
@@ -84,6 +86,7 @@ pub async fn set_checkpoint_active(
     checkpoint.activated_at = ActiveValue::Set(is_active.then_some(now));
     checkpoint.last_updated = ActiveValue::Set(Some(now));
     checkpoint.update(&*client.connection).await?;
+    info!("Checkpoint {} set active={} for app_id={}", checkpoint_id, is_active, checkpoint.app_id.clone().unwrap_or_default());
 
     Ok(serde_json::json!({"success": "Checkpoint status updated successfully"}))
 }
@@ -95,6 +98,7 @@ pub async fn delete_checkpoint(
     checkpoints::Entity::delete_by_id(checkpoint_id)
         .exec(&*client.connection)
         .await?;
+    info!("Checkpoint deleted: {}", checkpoint_id);
 
     Ok(serde_json::json!({"success": "Checkpoint deleted successfully"}))
 }

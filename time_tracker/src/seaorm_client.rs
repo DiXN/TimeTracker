@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use std::{error::Error, sync::Arc, time::Duration};
+use log::{error, info};
 
 use crossbeam_channel::Receiver;
 use sea_orm::{
@@ -51,7 +52,7 @@ impl SeaORMClient {
 
         let app_name = split[0];
         let current_session = split[1].parse::<i32>().unwrap_or_else(|_| {
-            eprintln!("Failed to parse session duration: {}", split[1]);
+            error!("Failed to parse session duration: {}", split[1]);
             0
         });
 
@@ -67,14 +68,17 @@ impl SeaORMClient {
             if current_session > app_model.longest_session.unwrap_or(0) {
                 let mut app_active: apps::ActiveModel = app_model.into();
                 app_active.longest_session = ActiveValue::Set(Some(current_session));
-                app_active.longest_session_on =
-                    ActiveValue::Set(Some(chrono::Local::now().naive_local().date()));
+                let now_date = chrono::Local::now().naive_local().date();
+                app_active.longest_session_on = ActiveValue::Set(Some(now_date));
                 app_active.update(&*self.connection).await?;
+                let date_str = format!("{}", now_date);
+                info!("{}: longest_session -> {}", app_name, current_session);
+                info!("{}: longest_session_on -> {}", app_name, date_str);
             }
 
             Ok(())
         }) {
-            eprintln!("Error updating longest session for {}: {}", app_name, e);
+            error!("Error updating longest session for {}: {}", app_name, e);
         }
 
         self.broadcast_apps_if_active(rt);
@@ -103,9 +107,11 @@ impl SeaORMClient {
 
             self.update_checkpoint_durations(app_id).await?;
 
+            info!("{}: duration -> {}", item, new_duration);
+
             Ok(())
         }) {
-            eprintln!("Error updating duration for {}: {}", item, e);
+            error!("Error updating duration for {}: {}", item, e);
         }
 
         self.broadcast_apps_if_active(rt);
@@ -134,9 +140,11 @@ impl SeaORMClient {
 
             self.update_checkpoint_sessions(app_id).await?;
 
+            info!("{}: launches -> {}", item, new_launches);
+
             Ok(())
         }) {
-            eprintln!("Error updating launches for {}: {}", item, e);
+            error!("Error updating launches for {}: {}", item, e);
         }
 
         self.broadcast_apps_if_active(rt);
@@ -166,6 +174,7 @@ impl SeaORMClient {
                 let mut timeline_active: timeline::ActiveModel = timeline_model.into();
                 timeline_active.duration = ActiveValue::Set(Some(new_duration));
                 timeline_active.update(&*self.connection).await?;
+                info!("{}: timeline -> {}", item, new_duration);
             } else {
                 let next_id = timeline::Entity::find()
                     .select_only()
@@ -189,11 +198,12 @@ impl SeaORMClient {
                 timeline::Entity::insert(new_timeline)
                     .exec(&*self.connection)
                     .await?;
+                info!("{}: timeline -> {}", item, 1);
             }
 
             Ok(())
         }) {
-            eprintln!("Error updating timeline for {}: {}", item, e);
+            error!("Error updating timeline for {}: {}", item, e);
         }
 
         if has_active_broadcaster()
@@ -240,7 +250,7 @@ impl SeaORMClient {
             checkpoint_active.last_updated = ActiveValue::Set(Some(now));
 
             if let Err(e) = checkpoint_active.update(&*self.connection).await {
-                eprintln!("Database error updating checkpoint duration: {}", e);
+                error!("Database error updating checkpoint duration: {}", e);
             }
         }
 
@@ -282,7 +292,7 @@ impl SeaORMClient {
             checkpoint_active.last_updated = ActiveValue::Set(Some(now));
 
             if let Err(e) = checkpoint_active.update(&*self.connection).await {
-                eprintln!("Database error updating checkpoint sessions: {}", e);
+                error!("Database error updating checkpoint sessions: {}", e);
             }
         }
 

@@ -12,6 +12,8 @@ use env_logger::{Builder, Env};
 
 use serde_derive::Deserialize;
 
+use std::time::Duration;
+
 mod error;
 mod receive_types;
 mod structs;
