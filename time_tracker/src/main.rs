@@ -3,21 +3,20 @@ extern crate lazy_static;
 #[macro_use]
 extern crate rust_embed;
 
-use std::env;
 use std::error::Error;
 use std::fs;
 use std::process;
+use std::sync::{Arc, RwLock};
 
 use env_logger::{Builder, Env};
 
 use serde_derive::Deserialize;
 
-use std::time::Duration;
-
 mod error;
 mod receive_types;
 mod structs;
 mod time_tracking;
+mod args;
 
 #[cfg(feature = "firebase")]
 mod firebase;
@@ -105,8 +104,25 @@ impl AsRef<Postgres> for Postgres {
     }
 }
 
+async fn handle_client<T>(
+    client: T,
+    config: time_tracking::TimeTrackingConfig,
+    subcommand: Option<args::SubCommand>,
+) -> Result<(), Box<dyn Error>>
+where
+    T: restable::Restable + Clone + Sync + Send + 'static,
+{
+    if let Some(args::SubCommand::Add(add_args)) = subcommand {
+        let client_arc = Arc::new(RwLock::new(client));
+        time_tracking::add_process(&add_args.process_name, &add_args.path, &client_arc).await?;
+        return Ok(());
+    }
+
+    time_tracking::init(client, config).await
+}
+
 #[cfg(feature = "firebase")]
-fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
+fn init_client(config: Config, args: args::Args) -> Result<(), Box<dyn Error>> {
     let url = config.firebase.as_ref().map(|f| &f.url);
     let key = config.firebase.as_ref().map(|f| &f.key);
 
@@ -115,11 +131,17 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
         _ => panic!("Missing credentials."),
     };
 
-    Ok(time_tracking::init(firebase_client, config.time_tracking)?)
+    let rt = tokio::runtime::Runtime::new()?;
+
+    rt.block_on(handle_client(
+        firebase_client,
+        config.time_tracking,
+        args.subcommand,
+    ))
 }
 
 #[cfg(feature = "psql")]
-fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
+fn init_client(config: Config, args: args::Args) -> Result<(), Box<dyn Error>> {
     let url = config.postgres.as_ref().map(|p| &p.url);
     let user = config.postgres.as_ref().map(|p| &p.user);
     let password = config.postgres.as_ref().and_then(|p| p.password.as_ref());
@@ -160,12 +182,15 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
         Ok::<SeaORMClient, Box<dyn Error>>(client)
     })?;
 
-    // Handle the async function in a blocking manner
-    rt.block_on(async { time_tracking::init(seaorm_client, config.time_tracking).await })
+    rt.block_on(handle_client(
+        seaorm_client,
+        config.time_tracking,
+        args.subcommand,
+    ))
 }
 
 #[cfg(feature = "memory")]
-fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
+fn init_client(config: Config, args: args::Args) -> Result<(), Box<dyn Error>> {
     let rt = tokio::runtime::Runtime::new()?;
 
     let seaorm_client = rt.block_on(async {
@@ -190,13 +215,15 @@ fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
         Ok::<SeaORMClient, Box<dyn Error>>(client)
     })?;
 
-    rt.block_on(async {
-        time_tracking::init(seaorm_client, time_tracking::TimeTrackingConfig::default()).await
-    })
+    rt.block_on(handle_client(
+        seaorm_client,
+        config.time_tracking,
+        args.subcommand,
+    ))
 }
 
 #[cfg(not(any(feature = "firebase", feature = "psql", feature = "memory")))]
-fn init_client(config: Config) -> Result<(), Box<dyn Error>> {
+fn init_client(_config: Config, _args: args::Args) -> Result<(), Box<dyn Error>> {
     // Default implementation when no features are enabled
     Ok(())
 }
@@ -206,13 +233,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     Builder::from_env(env).init();
 
+    let args: args::Args = argh::from_env();
+
     autostart()?;
     init_tray();
 
-    let args: Vec<String> = env::args().collect();
-    let use_memory_db = args.contains(&"--memory".to_string());
-
-    if use_memory_db {
+    if args.memory {
         #[cfg(feature = "memory")]
         {
             let config = Config {
@@ -224,7 +250,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 #[cfg(all(feature = "memory", not(any(feature = "firebase", feature = "psql"))))]
                 _dummy: None,
             };
-            init_client(config)?;
+            init_client(config, args)?;
         }
         #[cfg(not(feature = "memory"))]
         {
@@ -234,7 +260,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         let config = fs::read_to_string("env.toml")?;
         let config: Config = toml::from_str(&config)?;
-        init_client(config)?;
+        init_client(config, args)?;
     }
 
     Ok(())

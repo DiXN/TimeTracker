@@ -30,6 +30,7 @@ async-trait = "0.1"
 url = "2.3.0"
 anyhow = "1.0"
 thiserror = "1.0"
+argh = "0.1"
 
 # SeaORM dependencies
 sea-orm = { version = "0.12", features = [ "sqlx-postgres", "sqlx-sqlite", "runtime-tokio-rustls", "macros" ], optional = true }
