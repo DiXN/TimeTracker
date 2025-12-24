@@ -61,8 +61,9 @@ pub async fn set_checkpoint_active(
         .ok_or("Checkpoint not found")?
         .into();
 
+    let app_id = checkpoint.app_id.clone().unwrap();
+
     if is_active {
-        let app_id = checkpoint.app_id.clone().unwrap();
         let now = chrono::Local::now().naive_local();
 
         let active_checkpoints = checkpoints::Entity::find()
@@ -86,7 +87,7 @@ pub async fn set_checkpoint_active(
     checkpoint.activated_at = ActiveValue::Set(is_active.then_some(now));
     checkpoint.last_updated = ActiveValue::Set(Some(now));
     checkpoint.update(&*client.connection).await?;
-    info!("Checkpoint {} set active={} for app_id={}", checkpoint_id, is_active, checkpoint.app_id.clone().unwrap_or_default());
+    info!("Checkpoint {} set active={} for app_id={}", checkpoint_id, is_active, app_id);
 
     Ok(serde_json::json!({"success": "Checkpoint status updated successfully"}))
 }
