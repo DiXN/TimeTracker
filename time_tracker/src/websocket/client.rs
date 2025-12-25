@@ -33,6 +33,11 @@ impl ClientConnectionHandler {
             }
         };
 
+        if let Err(e) = websocket.get_ref().set_nonblocking(true) {
+            error!("Failed to set WebSocket to non-blocking: {}", e);
+            return;
+        }
+
         info!("New WebSocket connection established: {}", client_id);
 
         let (client_sender, _) = mpsc::channel::<String>();
